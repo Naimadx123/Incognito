@@ -2,5 +2,14 @@ name: Incognito
 version: '${version}'
 
 main: zone.vao.incognito.Incognito
-api-version: '26.3'
+api-version: '1.21.8'
 load: POSTWORLD
+folia-supported: true
+softdepend: [PlaceholderAPI]
+permissions:
+  incognito.use:
+    default: true
+  incognito.admin:
+    default: op
+  incognito.reveal:
+    default: op

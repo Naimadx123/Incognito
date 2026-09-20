@@ -7,28 +7,55 @@ plugins {
 repositories {
     mavenCentral()
     maven("https://repo.papermc.io/repository/maven-public/")
+    maven("https://repo.extendedclip.com/releases/")
+}
+
+configurations.testImplementation {
+    extendsFrom(configurations.compileOnly.get())
 }
 
 dependencies {
-    compileOnly("io.papermc.paper:paper-api:26.3.build.+")
-    implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
+    compileOnly("io.papermc.paper:paper-api:${providers.gradleProperty("paperApiVersion").getOrElse("1.21.8-R0.1-SNAPSHOT")}")
+    compileOnly("io.netty:netty-transport:4.2.18.Final")
+    compileOnly("me.clip:placeholderapi:2.12.3")
+    testImplementation(kotlin("test"))
 }
+
+val targetJava = providers.gradleProperty("targetJava").getOrElse("21")
 
 kotlin {
     jvmToolchain(25)
+    compilerOptions.jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget(targetJava))
+}
+
+java {
+    sourceCompatibility = JavaVersion.toVersion(targetJava)
+    targetCompatibility = JavaVersion.toVersion(targetJava)
 }
 
 tasks {
+    jar {
+        enabled = false
+    }
+
     build {
         dependsOn(shadowJar)
     }
 
     runServer {
-        // Configure the Minecraft version for our task.
-        // This is the only required configuration besides applying the plugin.
-        // Your plugin's jar (or shadowJar if present) will be used automatically.
-        minecraftVersion("26.3")
+        minecraftVersion(providers.gradleProperty("minecraftVersion").getOrElse("1.21.8"))
         jvmArgs("-Xms2G", "-Xmx2G")
+    }
+
+    test {
+        useJUnitPlatform()
+    }
+
+    shadowJar {
+        archiveFileName.set("Incognito-v${project.version}.jar")
+        filesMatching("META-INF/*.kotlin_module") {
+            duplicatesStrategy = DuplicatesStrategy.INCLUDE
+        }
     }
 
     processResources {
