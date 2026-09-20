@@ -1,0 +1,6 @@
+name: Incognito
+version: '${version}'
+
+main: zone.vao.incognito.Incognito
+api-version: '26.3'
+load: POSTWORLD

@@ -1,0 +1,29 @@
+names:
+  enabled: true
+  tabcomplete: true
+coordinates:
+  enabled: true
+  tabcomplete: true
+  patterns:
+    - '(?<![\w.])(?<x>-?\d+(?:\.\d+)?)(?:\s*[,;]\s*|\s+)-?\d+(?:\.\d+)?(?:\s*[,;]\s*|\s+)(?<z>-?\d+(?:\.\d+)?)(?![\w.])'
+    - '\bx\s*[:=]\s*(?<x>-?\d+(?:\.\d+)?)'
+    - '\bz\s*[:=]\s*(?<z>-?\d+(?:\.\d+)?)'
+placeholders:
+  enabled: true
+skin:
+  enabled: true
+  value: ''
+  signature: ''
+debug: false
+messages:
+  enabled: '<green>Incognito enabled. Your name: <name>'
+  disabled: '<yellow>Incognito disabled.'
+  status-enabled: '<green>Incognito: <name>'
+  status-disabled: '<yellow>Incognito is disabled.'
+  players-only: '<red>This command is only available to players.'
+  reconnect-enabled: '<yellow>Incognito enabled. Reconnect to load the world with shifted coordinates.'
+  reconnect-disabled: '<yellow>Incognito disabled. Reconnect to restore real coordinates.'
+  reconnect-required: '<yellow>Reconnect to start the coordinate offset.'
+  unsupported: '<red>Incognito protection cannot run on this server version.'
+  admin-enabled: '<green>Incognito enabled for <player>. Name: <name>'
+  admin-disabled: '<yellow>Incognito disabled for <player>.'
