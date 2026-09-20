@@ -13,6 +13,7 @@ import zone.vao.incognito.config.IncognitoConfig
 import zone.vao.incognito.identity.IncognitoService
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.logging.Level
 import io.papermc.paper.event.connection.configuration.PlayerConnectionInitialConfigureEvent
 import zone.vao.incognito.coordinate.CoordinateOffset
 
@@ -86,18 +87,18 @@ class PacketMasker(
             channel.closeFuture().addListener {
                 if (channels.remove(id, channel)) sessionOffsets.remove(id)
             }
-            val requests = ConcurrentHashMap<Int, String>()
+            val requests = ConcurrentHashMap<Int, SuggestionRequest>()
             val install = Runnable {
                 if (!closed && channel.isActive) {
                     try {
                         check(channel.pipeline().get("packet_handler") != null) { "Missing packet_handler" }
-                        if (settings.debug) plugin.logger.info("[debug] pipeline $id offset=$offset: ${channel.pipeline().names()}")
+                        if (settings.debug) plugin.logger.info("[debug] pipeline $id offset=$offset reveal=${plugin.server.getPlayer(id)?.hasPermission("incognito.reveal")}: ${channel.pipeline().names()}")
                         if (channel.pipeline().get(handlerName) == null) {
                             channel.pipeline().addBefore("packet_handler", handlerName, OutboundMaskHandler(
                                 transform = { native.mask(it, service.identities(), offset, requests, id, plugin.server.getPlayer(id)?.hasPermission("incognito.reveal") == true) },
                                 failure = { packet, error ->
                                     if (failures.add(packet.javaClass.name)) {
-                                        plugin.logger.severe("Blocked ${packet.javaClass.simpleName}: ${error.javaClass.simpleName}. Incorrect packet structure.")
+                                        plugin.logger.log(Level.SEVERE, "Blocked ${packet.javaClass.simpleName}: packet transformation failed.", error)
                                     }
                                     if (offset != CoordinateOffset.ZERO) channel.close()
                                 },

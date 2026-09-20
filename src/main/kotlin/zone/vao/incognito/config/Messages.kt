@@ -19,6 +19,8 @@ class Messages(config: FileConfiguration) {
         "unsupported" to "<red>Incognito protection cannot run on this server version.",
         "admin-enabled" to "<green>Incognito enabled for <player>. Name: <name>",
         "admin-disabled" to "<yellow>Incognito disabled for <player>.",
+        "relog-enabled" to "<yellow>Incognito was enabled by an administrator. Coordinates change after you reconnect.",
+        "relog-disabled" to "<yellow>Incognito was disabled by an administrator. Coordinates return to normal after you reconnect.",
     )
     private val values = defaults.mapValues { (key, default) -> config.getString("messages.$key", default)!! }
 

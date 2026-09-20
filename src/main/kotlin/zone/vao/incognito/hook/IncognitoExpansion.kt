@@ -4,6 +4,7 @@ import me.clip.placeholderapi.expansion.PlaceholderExpansion
 import org.bukkit.OfflinePlayer
 import zone.vao.incognito.Incognito
 import zone.vao.incognito.identity.IncognitoService
+import zone.vao.incognito.identity.RevealedNames
 
 class IncognitoExpansion(private val plugin: Incognito, private val service: IncognitoService) : PlaceholderExpansion() {
 
@@ -20,7 +21,7 @@ class IncognitoExpansion(private val plugin: Incognito, private val service: Inc
         return when (params.lowercase()) {
             "enabled" -> (identity != null).toString()
             "name" -> identity?.alias ?: player?.name.orEmpty()
-            "realname" -> player?.name.orEmpty()
+            "realname" -> RevealedNames.placeholder(player, identity)
             "x", "y", "z", "world" -> {
                 val location = player?.player?.location ?: return ""
                 val offset = service.offset(player.uniqueId)

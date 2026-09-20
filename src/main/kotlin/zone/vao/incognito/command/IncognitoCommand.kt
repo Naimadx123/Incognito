@@ -37,26 +37,26 @@ object IncognitoCommand {
             context.source.sender.sendMessage(service.settings.messages.get("players-only"))
             return Command.SINGLE_SUCCESS
         }
-        change(service, player, enabled)
+        change(service, player, enabled, true)
         return Command.SINGLE_SUCCESS
     }
 
     private fun other(service: IncognitoService, context: CommandContext<CommandSourceStack>, enabled: Boolean?): Int {
         val target = context.getArgument("target", PlayerSelectorArgumentResolver::class.java).resolve(context.source).first()
         val messages = service.settings.messages
-        val alias = change(service, target, enabled)
+        val alias = change(service, target, enabled, false)
         context.source.sender.sendMessage(alias?.let { messages.get("admin-enabled", it, target.name) } ?: messages.get("admin-disabled", "", target.name))
         return Command.SINGLE_SUCCESS
     }
 
-    private fun change(service: IncognitoService, player: Player, enabled: Boolean?): String? {
+    private fun change(service: IncognitoService, player: Player, enabled: Boolean?, kick: Boolean): String? {
         val messages = service.settings.messages
         if (enabled ?: (service.identity(player.uniqueId) == null)) {
-            val identity = service.enable(player)
+            val identity = service.enable(player, kick = kick)
             player.sendMessage(messages.get("enabled", identity.alias))
             return identity.alias
         }
-        service.disable(player)
+        service.disable(player, kick)
         player.sendMessage(messages.get("disabled"))
         return null
     }

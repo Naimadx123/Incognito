@@ -8,6 +8,7 @@ import net.kyori.adventure.text.Component
 import org.bukkit.Bukkit
 import zone.vao.incognito.config.IncognitoConfig
 import zone.vao.incognito.identity.Identity
+import zone.vao.incognito.identity.RevealedNames
 import zone.vao.incognito.coordinate.CoordinateOffset
 import zone.vao.incognito.coordinate.CoordinateMapper
 import java.lang.reflect.Modifier
@@ -41,7 +42,6 @@ internal class NativePackets(private val settings: IncognitoConfig, private val 
     private val registry = server.javaClass.getMethod("registryAccess").invoke(server)
     private val codecs = ConcurrentHashMap<Class<*>, Any>()
     private val logged = ConcurrentHashMap.newKeySet<String>()
-    private val askServerIds = ConcurrentHashMap<Class<*>, Any>()
     private val coordinateMapper = CoordinateMapper()
     private val textPackets = setOf(
         "ClientboundSystemChatPacket", "ClientboundDisguisedChatPacket", "ClientboundSetActionBarTextPacket",
@@ -59,26 +59,43 @@ internal class NativePackets(private val settings: IncognitoConfig, private val 
         check(gameProfile.invoke(probe) != null)
     }
 
-    fun mask(packet: Any, identities: List<Identity>, offset: CoordinateOffset = CoordinateOffset.ZERO, requests: MutableMap<Int, String> = HashMap(), id: UUID? = null, reveal: Boolean = false): Any? {
+    fun mask(packet: Any, identities: List<Identity>, offset: CoordinateOffset = CoordinateOffset.ZERO, requests: MutableMap<Int, SuggestionRequest> = HashMap(), id: UUID? = null, reveal: Boolean = false): Any? {
         val type = packet.javaClass
-        val names = if (settings.names && !reveal) identities else emptyList()
-        if (type.name == "net.minecraft.network.protocol.game.ClientboundPlayerChatPacket" && names.isNotEmpty()) return mask(disguise(packet), identities, offset, requests)
+        val names = if (settings.names) identities else emptyList()
+        if (type.name == "net.minecraft.network.protocol.game.ClientboundPlayerChatPacket" && (names.isNotEmpty() || RevealedNames.active())) return mask(disguise(packet), identities, offset, requests, id, reveal)
         if (type.name == "net.minecraft.network.protocol.game.ClientboundBundlePacket") {
             val packets = type.getMethod("subPackets").invoke(packet) as Iterable<*>
             val masked = packets.mapNotNull { it?.let { mask(it, identities, offset, requests, id, reveal) } }
             return if (masked.isEmpty()) null else type.getConstructor(Iterable::class.java).newInstance(masked)
         }
-        if (type.name == "net.minecraft.network.protocol.game.ClientboundCommandsPacket" &&
-            (names.isNotEmpty() && !settings.namesTabComplete || offset != CoordinateOffset.ZERO && !settings.coordinatesTabComplete)) return askServer(copy(packet))
         if (type.name == "net.minecraft.network.protocol.game.ClientboundCommandSuggestionsPacket") {
-            val command = requests.remove(field(packet, "id") as Int) ?: ""
+            val request = requests.remove(field(packet, "id") as Int)
+            val command = request?.command.orEmpty()
             val suggestedNames = if (settings.namesTabComplete) names else emptyList()
             val suggestedOffset = if (settings.coordinatesTabComplete) offset else CoordinateOffset.ZERO
-            if (suggestedNames.isEmpty() && suggestedOffset == CoordinateOffset.ZERO) return packet
-            val preceding = text.preceding(command.take(field(packet, "start") as Int))
+            val serverStart = field(packet, "start") as Int
+            val serverEnd = serverStart + (field(packet, "length") as Int)
+            val start = request?.start(serverStart) ?: serverStart
+            val end = request?.end(serverEnd) ?: serverEnd
+            val preceding = text.preceding(command.take(start))
+            val suggestions = (field(packet, "suggestions") as List<*>).mapNotNull { entry ->
+                val suggestion = text.suggestion(field(entry!!, "text") as String, suggestedNames, suggestedOffset, preceding)
+                if (request?.accepts(suggestion, start, end, suggestedNames) == false) return@mapNotNull null
+                NativeReflection.record(entry) { part, content ->
+                    when (part) {
+                        "text" -> RevealedNames.resolve(suggestion, reveal)
+                        "tooltip" -> transform(content, names, suggestedOffset, reveal)
+                        else -> content
+                    }
+                }
+            }
+            if (settings.debug) logger.info("[debug] suggestions $id request=${field(packet, "id")} command='$command' received=${(field(packet, "suggestions") as List<*>).size} sent=${suggestions.size} range=$serverStart..$serverEnd -> $start..$end")
             return NativeReflection.record(packet) { name, value ->
-                if (name != "suggestions") value else (value as List<*>).map { entry ->
-                    NativeReflection.record(entry!!) { part, content -> if (part == "text") text.suggestion(content as String, suggestedNames, suggestedOffset, preceding) else content }
+                when (name) {
+                    "start" -> start
+                    "length" -> end - start
+                    "suggestions" -> suggestions
+                    else -> value
                 }
             }
         }
@@ -87,17 +104,21 @@ internal class NativePackets(private val settings: IncognitoConfig, private val 
             result = coordinateMapper.translate(copy(packet), offset)
             debug("$id:out:" + type.name) { "outbound $id ${type.simpleName}: ${describe(packet).take(300)} -> ${describe(result).take(300)}" }
         }
-        if (identities.isNotEmpty() && (settings.names || settings.skin) && type.name == "net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket") return maskProfiles(result, identities, id)
-        if (names.isEmpty() && offset == CoordinateOffset.ZERO || type.packageName != "net.minecraft.network.protocol.game" || type.simpleName !in textPackets) return result
-        return transform(if (result !== packet || type.isRecord) result else copy(packet), names, offset)
+        if (type.name == "net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket") return maskProfiles(result, identities, names, id, reveal)
+        if (names.isEmpty() && offset == CoordinateOffset.ZERO && !RevealedNames.active() || type.packageName != "net.minecraft.network.protocol.game" || type.simpleName !in textPackets) return result
+        return transform(if (result !== packet || type.isRecord) result else copy(packet), names, offset, reveal)
     }
 
-    fun inbound(packet: Any, identities: List<Identity>, offset: CoordinateOffset, requests: MutableMap<Int, String>, id: UUID? = null): Any {
+    fun inbound(packet: Any, identities: List<Identity>, offset: CoordinateOffset, requests: MutableMap<Int, SuggestionRequest>, id: UUID? = null): Any {
         val type = packet.javaClass
         val names = if (settings.names) identities else emptyList()
         if (type.name == "net.minecraft.network.protocol.game.ServerboundCommandSuggestionPacket") {
-            requests[field(packet, "id") as Int] = field(packet, "command") as String
-            return packet
+            val request = SuggestionRequest.create(field(packet, "command") as String, if (settings.namesTabComplete) names else emptyList())
+            requests[field(packet, "id") as Int] = request
+            if (settings.debug) logger.info("[debug] suggestion request $id request=${field(packet, "id")} command='${request.command}' forwarded='${request.forwarded}'")
+            if (request.command == request.forwarded) return packet
+            if (type.isRecord) return NativeReflection.record(packet) { name, value -> if (name == "command") request.forwarded else value }
+            return copy(packet).also { copied -> NativeReflection.fields(type).first { it.name == "command" }.set(copied, request.forwarded) }
         }
         if (type.name == "net.minecraft.network.protocol.game.ServerboundChatCommandPacket" && (names.isNotEmpty() || offset != CoordinateOffset.ZERO)) {
             return NativeReflection.record(packet) { name, value -> if (name == "command") text.restore(value as String, names, offset) else value }
@@ -112,7 +133,7 @@ internal class NativePackets(private val settings: IncognitoConfig, private val 
         if (settings.debug && logged.add(key)) logger.info("[debug] ${message()}")
     }
 
-    private fun maskProfiles(packet: Any, identities: List<Identity>, viewer: UUID?): Any {
+    private fun maskProfiles(packet: Any, identities: List<Identity>, names: List<Identity>, viewer: UUID?, reveal: Boolean): Any {
         val fields = NativeReflection.fields(packet.javaClass)
         val actions = fields.single { EnumSet::class.java.isAssignableFrom(it.type) }.get(packet)
         val entries = fields.single { List::class.java.isAssignableFrom(it.type) }.get(packet) as List<*>
@@ -120,11 +141,11 @@ internal class NativePackets(private val settings: IncognitoConfig, private val 
         val masked = entries.map { entry ->
             requireNotNull(entry)
             val id = entry.javaClass.getMethod("profileId").invoke(entry) as UUID
-            val identity = byId[id] ?: return@map entry
+            val identity = byId[id]
             NativeReflection.record(entry) { name, value ->
                 when (name) {
-                    "profile" -> createProfile(identity, value, settings.skin && identity.id != viewer)
-                    "displayName" -> if (settings.names) toVanilla.invoke(null, Component.text(identity.alias)) else value
+                    "profile" -> if (identity == null || !settings.names && !settings.skin) value else createProfile(identity, value, settings.skin && identity.id != viewer)
+                    "displayName" -> transform(value, names, CoordinateOffset.ZERO, reveal)
                     else -> value
                 }
             }
@@ -139,21 +160,21 @@ internal class NativePackets(private val settings: IncognitoConfig, private val 
         return gameProfile.invoke(profile)
     }
 
-    private fun transform(value: Any?, identities: List<Identity>, offset: CoordinateOffset): Any? {
+    private fun transform(value: Any?, identities: List<Identity>, offset: CoordinateOffset, reveal: Boolean): Any? {
         if (value == null) return null
-        if (value is Component) return components.mask(value, identities, offset)
+        if (value is Component) return components.mask(value, identities, offset, reveal)
         if (componentType.isInstance(value)) {
             val adventure = toAdventure.invoke(null, value) as Component
-            return toVanilla.invoke(null, components.mask(adventure, identities, offset))
+            return toVanilla.invoke(null, components.mask(adventure, identities, offset, reveal))
         }
-        if (value is Optional<*>) return value.map { transform(it, identities, offset) }
-        if (value is List<*>) return value.map { transform(it, identities, offset) }
+        if (value is Optional<*>) return value.map { transform(it, identities, offset, reveal) }
+        if (value is List<*>) return value.map { transform(it, identities, offset, reveal) }
         val type = value.javaClass
         if (type.isEnum || type.packageName != "net.minecraft.network.protocol.game" && type.name !in textContainers) return value
-        if (type.isRecord) return NativeReflection.record(value) { _, part -> transform(part, identities, offset) }
+        if (type.isRecord) return NativeReflection.record(value) { _, part -> transform(part, identities, offset, reveal) }
         NativeReflection.fields(type).forEach { field ->
             val original = field.get(value)
-            val masked = transform(original, identities, offset)
+            val masked = transform(original, identities, offset, reveal)
             if (masked !== original) field.set(value, masked)
         }
         return value
@@ -163,26 +184,6 @@ internal class NativePackets(private val settings: IncognitoConfig, private val 
         val unsigned = field(packet, "unsignedContent").let { if (it is Optional<*>) it.orElse(null) else it }
         val content = unsigned ?: literal.invoke(null, field(field(packet, "body")!!, "content"))
         return disguisedChat.newInstance(content, field(packet, "chatType"))
-    }
-
-    private fun askServer(packet: Any): Any {
-        val entries = NativeReflection.fields(packet.javaClass).first { it.name == "entries" }
-        entries.set(packet, (entries.get(packet) as List<*>).map { entry ->
-            val stub = field(entry!!, "stub")
-            if (stub == null || stub.javaClass.simpleName != "ArgumentNodeStub") return@map entry
-            NativeReflection.record(entry) { name, value ->
-                when (name) {
-                    "stub" -> NativeReflection.record(stub) { part, content ->
-                        if (part != "suggestionId") content else askServerIds.computeIfAbsent(stub.javaClass.recordComponents.first { it.name == part }.type) {
-                            it.getMethod("parse", String::class.java).invoke(null, "minecraft:ask_server")
-                        }
-                    }
-                    "flags" -> (value as Int) or 16
-                    else -> value
-                }
-            }
-        })
-        return packet
     }
 
     private fun describe(packet: Any): String = if (packet.javaClass.isRecord) packet.toString() else

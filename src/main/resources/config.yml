@@ -27,3 +27,5 @@ messages:
   unsupported: '<red>Incognito protection cannot run on this server version.'
   admin-enabled: '<green>Incognito enabled for <player>. Name: <name>'
   admin-disabled: '<yellow>Incognito disabled for <player>.'
+  relog-enabled: '<yellow>Incognito was enabled by an administrator. Coordinates change after you reconnect.'
+  relog-disabled: '<yellow>Incognito was disabled by an administrator. Coordinates return to normal after you reconnect.'

@@ -33,7 +33,7 @@ class IncognitoService(private val plugin: Incognito, val settings: IncognitoCon
         region(player) { player.persistentDataContainer.get(key, PersistentDataType.STRING)?.let { enable(player, it) } }
     }
 
-    fun enable(player: Player, requested: String? = null): Identity {
+    fun enable(player: Player, requested: String? = null, kick: Boolean = true): Identity {
         identities[player.uniqueId]?.let { return it }
         val alias = requested?.takeIf { it.matches(Regex("Anon_[a-f0-9]{10}")) && available(it) }
             ?: generateSequence { "Anon_${UUID.randomUUID().toString().replace("-", "").take(10)}" }.first(::available)
@@ -49,23 +49,23 @@ class IncognitoService(private val plugin: Incognito, val settings: IncognitoCon
             }
             if (settings.names || settings.skin) refresh(player)
             player.updateCommands()
-            if (reconnect) {
+            if (reconnect && kick) {
                 player.saveData()
                 player.kick(settings.messages.get("reconnect-enabled"))
-            }
+            } else if (reconnect) player.sendMessage(settings.messages.get("relog-enabled"))
         }
         return identity
     }
 
-    fun disable(player: Player) {
+    fun disable(player: Player, kick: Boolean = true) {
         val reconnect = coordinateSessions.disable(player.uniqueId)
         region(player) {
             player.persistentDataContainer.remove(key)
             restore(player)
-            if (reconnect) {
+            if (reconnect && kick) {
                 player.saveData()
                 player.kick(settings.messages.get("reconnect-disabled"))
-            }
+            } else if (reconnect) player.sendMessage(settings.messages.get("relog-disabled"))
         }
     }
 
