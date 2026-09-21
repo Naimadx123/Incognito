@@ -6,6 +6,7 @@ import org.bukkit.event.EventPriority
 import org.bukkit.event.Listener
 import org.bukkit.event.player.PlayerJoinEvent
 import org.bukkit.event.player.PlayerQuitEvent
+import org.bukkit.event.player.PlayerCommandPreprocessEvent
 
 class IncognitoListener(private val service: IncognitoService) : Listener {
 
@@ -26,5 +27,11 @@ class IncognitoListener(private val service: IncognitoService) : Listener {
     fun onQuit(event: PlayerQuitEvent) {
         if (service.identity(event.player.uniqueId) != null) event.quitMessage(null)
         service.forget(event.player)
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    fun onCommand(event: PlayerCommandPreprocessEvent) {
+        val command = service.rewriteCommand(event.message)
+        if (command != event.message) event.message = command
     }
 }

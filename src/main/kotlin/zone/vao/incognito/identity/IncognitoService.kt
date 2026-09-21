@@ -8,6 +8,7 @@ import org.bukkit.inventory.meta.SkullMeta
 import org.bukkit.entity.Player
 import zone.vao.incognito.Incognito
 import zone.vao.incognito.config.IncognitoConfig
+import zone.vao.incognito.command.CommandNames
 import zone.vao.incognito.packet.NativeReflection
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -41,6 +42,9 @@ class IncognitoService(private val plugin: Incognito, val settings: IncognitoCon
     fun identities(): List<Identity> = data.enabled().mapNotNull { identity(it.id) }
 
     fun suggestionIdentities(): List<Identity> = suggestionNames.identities(identities())
+
+    fun rewriteCommand(command: String): String =
+        if (settings.names && settings.hideRealName) CommandNames.rewrite(command, identities.values) { plugin.server.getPlayer(it)?.isOnline == true } else command
 
     fun offset(id: UUID): CoordinateOffset = if (settings.coordinates) coordinateSessions.get(id) else CoordinateOffset.ZERO
 
