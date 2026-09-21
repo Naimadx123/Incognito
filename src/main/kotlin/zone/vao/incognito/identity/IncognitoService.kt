@@ -6,6 +6,7 @@ import org.bukkit.entity.Player
 import org.bukkit.persistence.PersistentDataType
 import zone.vao.incognito.Incognito
 import zone.vao.incognito.config.IncognitoConfig
+import zone.vao.incognito.packet.NativeReflection
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import zone.vao.incognito.coordinate.CoordinateOffset
@@ -18,6 +19,12 @@ class IncognitoService(private val plugin: Incognito, val settings: IncognitoCon
     private val identities = ConcurrentHashMap<UUID, Identity>()
     private val originalNames = ConcurrentHashMap<UUID, Pair<Component, Component?>>()
     val coordinateSessions = CoordinateSessions(File(plugin.dataFolder, "coordinate-sessions.yml"))
+    private val playersByName: MutableMap<String, Any> by lazy {
+        val server = plugin.server.javaClass.getMethod("getServer").invoke(plugin.server)
+        val list = server.javaClass.getMethod("getPlayerList").invoke(server)
+        @Suppress("UNCHECKED_CAST")
+        NativeReflection.fields(list.javaClass).first { it.name == "playersByName" }.get(list) as MutableMap<String, Any>
+    }
 
     fun identity(id: UUID): Identity? = identities[id]
 
@@ -46,6 +53,7 @@ class IncognitoService(private val plugin: Incognito, val settings: IncognitoCon
                 originalNames[player.uniqueId] = player.displayName() to player.playerListName()
                 player.displayName(Component.text(alias))
                 player.playerListName(Component.text(alias))
+                if (settings.hideRealName) rename(player, player.name, alias)
             }
             if (settings.names || settings.skin) refresh(player)
             if (settings.names) completions()
@@ -79,7 +87,8 @@ class IncognitoService(private val plugin: Incognito, val settings: IncognitoCon
     }
 
     private fun restore(player: Player, refresh: Boolean = true) {
-        if (identities.remove(player.uniqueId) == null) return
+        val identity = identities.remove(player.uniqueId) ?: return
+        if (settings.names && settings.hideRealName) rename(player, identity.alias, if (refresh) player.name else null)
         originalNames.remove(player.uniqueId)?.let { (display, list) ->
             player.displayName(display)
             player.playerListName(list)
@@ -92,6 +101,12 @@ class IncognitoService(private val plugin: Incognito, val settings: IncognitoCon
     private fun available(alias: String): Boolean =
         plugin.server.onlinePlayers.none { it.name.equals(alias, true) } &&
             identities.values.none { it.alias.equals(alias, true) }
+
+    private fun rename(player: Player, from: String, to: String?) {
+        val handle = player.javaClass.getMethod("getHandle").invoke(player)
+        if (playersByName[from.lowercase()] === handle) playersByName.remove(from.lowercase())
+        if (to != null) playersByName[to.lowercase()] = handle
+    }
 
     private fun completions() {
         val names = plugin.server.onlinePlayers.map { it.name }

@@ -19,7 +19,8 @@ class Incognito : JavaPlugin() {
     private var placeholders: PlaceholderMasker? = null
 
     override fun onEnable() {
-        saveDefaultConfig()
+        IncognitoConfig.sync(this)
+        reloadConfig()
         val settings = IncognitoConfig.load(config)
         incognitoService = IncognitoService(this, settings)
         packets = PacketMasker(this, incognitoService, settings).also { it.register() }

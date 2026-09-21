@@ -118,15 +118,15 @@ internal class NativePackets(private val settings: IncognitoConfig, private val 
         val type = packet.javaClass
         val names = if (settings.names) identities else emptyList()
         if (type.name == "net.minecraft.network.protocol.game.ServerboundCommandSuggestionPacket") {
-            val request = SuggestionRequest.create(field(packet, "command") as String, if (settings.namesTabComplete) names else emptyList())
+            val request = SuggestionRequest.create(field(packet, "command") as String, emptyList())
             requests[field(packet, "id") as Int] = request
             if (settings.debug) logger.info("[debug] suggestion request $id request=${field(packet, "id")} command='${request.command}' forwarded='${request.forwarded}'")
             if (request.command == request.forwarded) return packet
             if (type.isRecord) return NativeReflection.record(packet) { name, value -> if (name == "command") request.forwarded else value }
             return copy(packet).also { copied -> NativeReflection.fields(type).first { it.name == "command" }.set(copied, request.forwarded) }
         }
-        if (type.name == "net.minecraft.network.protocol.game.ServerboundChatCommandPacket" && (names.isNotEmpty() || offset != CoordinateOffset.ZERO)) {
-            return NativeReflection.record(packet) { name, value -> if (name == "command") text.restore(value as String, names, offset) else value }
+        if (type.name == "net.minecraft.network.protocol.game.ServerboundChatCommandPacket" && offset != CoordinateOffset.ZERO) {
+            return NativeReflection.record(packet) { name, value -> if (name == "command") text.restore(value as String, emptyList(), offset) else value }
         }
         if (offset == CoordinateOffset.ZERO || !coordinateMapper.supports(type)) return packet
         val translated = coordinateMapper.translate(copy(packet), offset.inverse())

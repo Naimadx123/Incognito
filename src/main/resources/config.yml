@@ -1,6 +1,7 @@
 names:
   enabled: true
   tabcomplete: true
+  hide_realname: true
 coordinates:
   enabled: true
   tabcomplete: true
