@@ -25,7 +25,6 @@ class IncognitoListener(private val service: IncognitoService) : Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST)
     fun onQuit(event: PlayerQuitEvent) {
-        if (service.identity(event.player.uniqueId) != null) event.quitMessage(null)
         service.forget(event.player)
     }
 
