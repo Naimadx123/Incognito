@@ -68,6 +68,11 @@ internal class NativePackets(private val settings: IncognitoConfig, private val 
             val masked = packets.mapNotNull { it?.let { mask(it, identities, offset, requests, id, reveal) } }
             return if (masked.isEmpty()) null else type.getConstructor(Iterable::class.java).newInstance(masked)
         }
+        if (type.name == "net.minecraft.network.protocol.game.ClientboundCustomChatCompletionsPacket" && names.isNotEmpty() && settings.namesTabComplete) {
+            return NativeReflection.record(packet) { name, value ->
+                if (name == "entries") (value as List<*>).map { text.mask(it as String, names, CoordinateOffset.ZERO) } else value
+            }
+        }
         if (type.name == "net.minecraft.network.protocol.game.ClientboundCommandSuggestionsPacket") {
             val request = requests.remove(field(packet, "id") as Int)
             val command = request?.command.orEmpty()

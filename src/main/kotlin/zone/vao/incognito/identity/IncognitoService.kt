@@ -48,6 +48,7 @@ class IncognitoService(private val plugin: Incognito, val settings: IncognitoCon
                 player.playerListName(Component.text(alias))
             }
             if (settings.names || settings.skin) refresh(player)
+            if (settings.names) completions()
             player.updateCommands()
             if (reconnect && kick) {
                 player.saveData()
@@ -84,12 +85,18 @@ class IncognitoService(private val plugin: Incognito, val settings: IncognitoCon
             player.playerListName(list)
         }
         if (refresh && (settings.names || settings.skin)) refresh(player)
+        if (refresh && settings.names) completions()
         if (refresh) player.updateCommands()
     }
 
     private fun available(alias: String): Boolean =
         plugin.server.onlinePlayers.none { it.name.equals(alias, true) } &&
             identities.values.none { it.alias.equals(alias, true) }
+
+    private fun completions() {
+        val names = plugin.server.onlinePlayers.map { it.name }
+        plugin.server.onlinePlayers.forEach { viewer -> region(viewer) { viewer.setCustomChatCompletions(names) } }
+    }
 
     private fun refresh(player: Player) {
         player.playerProfile = player.playerProfile
