@@ -22,7 +22,7 @@ internal class CoordinateMapper {
         "ServerboundMoveVehiclePacket", "ServerboundPlayerActionPacket", "ServerboundUseItemOnPacket",
         "ServerboundSignUpdatePacket", "ServerboundBlockEntityTagQueryPacket", "ServerboundSetCommandBlockPacket",
         "ServerboundSetJigsawBlockPacket", "ServerboundSetStructureBlockPacket", "ServerboundJigsawGeneratePacket",
-        "ServerboundPickItemFromBlockPacket", "ServerboundTestInstanceBlockActionPacket",
+        "ServerboundPickItemFromBlockPacket", "ServerboundTestInstanceBlockActionPacket", "ServerboundSetTestBlockPacket",
     )
     private val nested = setOf(
         "net.minecraft.world.entity.PositionMoveRotation", "net.minecraft.core.GlobalPos",

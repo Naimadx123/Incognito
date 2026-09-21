@@ -13,6 +13,7 @@ import zone.vao.incognito.coordinate.CoordinateOffset
 import zone.vao.incognito.coordinate.CoordinateMapper
 import java.lang.reflect.Modifier
 import org.bukkit.inventory.ItemStack
+import org.bukkit.inventory.meta.CompassMeta
 import java.util.logging.Logger
 import java.util.EnumSet
 import java.util.Optional
@@ -44,6 +45,7 @@ internal class NativePackets(private val settings: IncognitoConfig, private val 
     private val itemStackType = Class.forName("net.minecraft.world.item.ItemStack")
     private val getItem = itemStackType.getMethod("getItem")
     private val playerHead = Class.forName("net.minecraft.world.item.Items").getField("PLAYER_HEAD").get(null)
+    private val compass = Class.forName("net.minecraft.world.item.Items").getField("COMPASS").get(null)
     private val craftItemStack = Class.forName("org.bukkit.craftbukkit.inventory.CraftItemStack")
     private val toBukkit = craftItemStack.methods.first { it.name == "asBukkitCopy" && it.parameterCount == 1 }
     private val toNms = craftItemStack.getMethod("asNMSCopy", ItemStack::class.java)
@@ -149,6 +151,9 @@ internal class NativePackets(private val settings: IncognitoConfig, private val 
             if (type.isRecord) return NativeReflection.record(packet) { name, value -> if (name == "command") request.forwarded else value }
             return copy(packet).also { copied -> NativeReflection.fields(type).first { it.name == "command" }.set(copied, request.forwarded) }
         }
+        if (type.name == "net.minecraft.network.protocol.game.ServerboundSetCreativeModeSlotPacket" && offset != CoordinateOffset.ZERO) {
+            return NativeReflection.record(packet) { name, value -> if (name == "itemStack") maskStack(value!!, false, offset.inverse()) else value }
+        }
         if (type.name == "net.minecraft.network.protocol.game.ServerboundChatCommandPacket" && offset != CoordinateOffset.ZERO) {
             return NativeReflection.record(packet) { name, value -> if (name == "command") text.restore(value as String, emptyList(), offset) else value }
         }
@@ -199,8 +204,8 @@ internal class NativePackets(private val settings: IncognitoConfig, private val 
         if (value is Optional<*>) return value.map { transform(it, identities, offset, reveal, heads) }
         if (value is List<*>) return value.map { transform(it, identities, offset, reveal, heads) }
         val type = value.javaClass
-        if (heads.isNotEmpty()) {
-            if (itemStackType.isInstance(value)) return maskStack(value)
+        if (heads.isNotEmpty() || offset != CoordinateOffset.ZERO) {
+            if (itemStackType.isInstance(value)) return maskStack(value, heads.isNotEmpty(), offset)
             if (compoundType.isInstance(value)) return maskTag(value, heads)
             if (pairType.isInstance(value)) {
                 val first = pairType.getMethod("getFirst").invoke(value)
@@ -218,10 +223,20 @@ internal class NativePackets(private val settings: IncognitoConfig, private val 
         return value
     }
 
-    private fun maskStack(stack: Any): Any {
-        if (getItem.invoke(stack) !== playerHead) return stack
+    private fun maskStack(stack: Any, heads: Boolean, offset: CoordinateOffset): Any {
+        val item = getItem.invoke(stack)
+        if (!(heads && item === playerHead || offset != CoordinateOffset.ZERO && item === compass)) return stack
         val bukkit = toBukkit.invoke(null, stack) as ItemStack
-        return if (headMasker(bukkit)) toNms.invoke(null, bukkit) else stack
+        val changed = if (item === playerHead) headMasker(bukkit) else lodestone(bukkit, offset)
+        return if (changed) toNms.invoke(null, bukkit) else stack
+    }
+
+    private fun lodestone(item: ItemStack, offset: CoordinateOffset): Boolean {
+        val meta = item.itemMeta as? CompassMeta ?: return false
+        val target = meta.lodestone ?: return false
+        meta.lodestone = target.clone().add(offset.x.toDouble(), 0.0, offset.z.toDouble())
+        item.itemMeta = meta
+        return true
     }
 
     private fun maskTag(tag: Any, heads: List<Identity>): Any {
