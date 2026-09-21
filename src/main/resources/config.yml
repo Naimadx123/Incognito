@@ -1,21 +1,54 @@
+# Changes require a server restart.
+
 names:
+  # Replace the real name with an alias in the profile, TAB, nametag, chat and every text sent to clients.
   enabled: true
+  # Show aliases instead of real names in command suggestions and chat name completion.
+  # When false, suggestions contain real names.
   tabcomplete: true
+  # While incognito is active the real name stops resolving as an online player
+  # (/msg, /tp, /kick, selectors, Bukkit.getPlayerExact); the alias resolves instead.
+  # Offline lookups (bans, whitelist, LuckPerms) keep working with the real name.
   hide_realname: true
+  # Alias pattern. {random} is replaced with random hex characters (up to 10).
+  # Only letters, digits and underscores are allowed around it; the whole alias is
+  # capped at 16 characters, so a longer prefix shortens the random part.
+  # Changing the format gives players a new alias on their next login.
+  format: 'Anon_{random}'
+
 coordinates:
+  # Shift the whole world view (chunks, entities, F3, minimaps) by a random, fixed X/Z offset per player.
+  # Enabling or disabling incognito with this on requires the player to reconnect.
   enabled: true
+  # Apply the same offset to numeric command suggestions (/tp, /setblock, ...).
+  # When false, suggestions show real coordinates.
   tabcomplete: true
+  # Regular expressions applied to text sent to clients. Values captured by the named
+  # groups (?<x>...) and (?<z>...) are shifted by the player's offset; Y is never changed.
+  # Patterns are case-insensitive. A pattern without x or z groups changes nothing.
   patterns:
     - '(?<![\w.])(?<x>-?\d+(?:\.\d+)?)(?:\s*[,;]\s*|\s+)-?\d+(?:\.\d+)?(?:\s*[,;]\s*|\s+)(?<z>-?\d+(?:\.\d+)?)(?![\w.])'
     - '\bx\s*[:=]\s*(?<x>-?\d+(?:\.\d+)?)'
     - '\bz\s*[:=]\s*(?<z>-?\d+(?:\.\d+)?)'
+
 placeholders:
+  # Wrap every PlaceholderAPI expansion so placeholder results (%player_name%, %player_x%, ...)
+  # go through the same name and coordinate filter.
   enabled: true
+
 skin:
+  # Hide the real skin from other players. The player always sees their own skin.
   enabled: true
+  # Optional shared skin shown instead of the default one: signed Minecraft profile
+  # texture properties (not a username or an image URL). Both values must be set together.
   value: ''
   signature: ''
+
+# Log packet translations and pipeline details. Only for troubleshooting.
 debug: false
+
+# Player-facing messages in MiniMessage format.
+# <name> is the alias, <player> is the real name of the target in admin messages.
 messages:
   enabled: '<green>Incognito enabled. Your name: <name>'
   disabled: '<yellow>Incognito disabled.'

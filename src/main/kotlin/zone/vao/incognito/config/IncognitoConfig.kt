@@ -11,6 +11,7 @@ data class IncognitoConfig(
     val coordinates: Boolean,
     val namesTabComplete: Boolean,
     val hideRealName: Boolean,
+    val aliasFormat: String,
     val coordinatesTabComplete: Boolean,
     val placeholders: Boolean,
     val coordinatePatterns: List<Regex>,
@@ -47,12 +48,15 @@ data class IncognitoConfig(
             val texture = config.getString("skin.value", "")!!.trim()
             val signature = config.getString("skin.signature", "")!!.trim()
             require(texture.isEmpty() == signature.isEmpty()) { "Provide skin.value and skin.signature together" }
+            val format = config.getString("names.format", "Anon_{random}")!!.trim()
+            require("{random}" in format && format.replace("{random}", "").matches(Regex("[A-Za-z0-9_]{0,15}"))) { "names.format must contain {random} and only letters, digits and underscores" }
             return IncognitoConfig(
                 config.getBoolean("names.enabled", true),
                 config.getBoolean("skin.enabled", true),
                 config.getBoolean("coordinates.enabled", true),
                 config.getBoolean("names.tabcomplete", true),
                 config.getBoolean("names.hide_realname", true),
+                format,
                 config.getBoolean("coordinates.tabcomplete", true),
                 config.getBoolean("placeholders.enabled", true),
                 config.getStringList("coordinates.patterns").map { Regex(it, RegexOption.IGNORE_CASE) },

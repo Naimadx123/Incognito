@@ -5,7 +5,7 @@ main: zone.vao.incognito.Incognito
 api-version: '1.21.8'
 load: POSTWORLD
 folia-supported: true
-softdepend: [PlaceholderAPI]
+softdepend: [PlaceholderAPI, MiniPlaceholders]
 permissions:
   incognito.use:
     default: op

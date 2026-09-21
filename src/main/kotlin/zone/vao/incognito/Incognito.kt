@@ -9,6 +9,7 @@ import zone.vao.incognito.identity.IncognitoListener
 import zone.vao.incognito.packet.PacketMasker
 import zone.vao.incognito.hook.IncognitoExpansion
 import zone.vao.incognito.hook.PlaceholderMasker
+import zone.vao.incognito.hook.IncognitoMiniPlaceholders
 
 class Incognito : JavaPlugin() {
 
@@ -17,6 +18,7 @@ class Incognito : JavaPlugin() {
     private var packets: PacketMasker? = null
     private var expansion: IncognitoExpansion? = null
     private var placeholders: PlaceholderMasker? = null
+    private var miniPlaceholders: IncognitoMiniPlaceholders? = null
 
     override fun onEnable() {
         IncognitoConfig.sync(this)
@@ -29,6 +31,9 @@ class Incognito : JavaPlugin() {
             expansion = IncognitoExpansion(this, incognitoService).also { it.register() }
             if (settings.placeholders) placeholders = PlaceholderMasker(this, incognitoService).also { it.register() }
         }
+        if (server.pluginManager.isPluginEnabled("MiniPlaceholders")) {
+            miniPlaceholders = IncognitoMiniPlaceholders(this, incognitoService).also { it.register() }
+        }
         lifecycleManager.registerEventHandler(LifecycleEvents.COMMANDS) {
             it.registrar().register(IncognitoCommand.build(incognitoService), "Hides player identity", listOf("incog"))
         }
@@ -37,6 +42,7 @@ class Incognito : JavaPlugin() {
 
     override fun onDisable() {
         packets?.close()
+        miniPlaceholders?.unregister()
         placeholders?.unregister()
         expansion?.unregister()
         if (::incognitoService.isInitialized) incognitoService.close()

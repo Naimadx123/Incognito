@@ -4,9 +4,10 @@ import me.clip.placeholderapi.expansion.PlaceholderExpansion
 import org.bukkit.OfflinePlayer
 import zone.vao.incognito.Incognito
 import zone.vao.incognito.identity.IncognitoService
-import zone.vao.incognito.identity.RevealedNames
 
-class IncognitoExpansion(private val plugin: Incognito, private val service: IncognitoService) : PlaceholderExpansion() {
+class IncognitoExpansion(private val plugin: Incognito, service: IncognitoService) : PlaceholderExpansion() {
+
+    private val placeholders = Placeholders(service)
 
     override fun getIdentifier(): String = "incognito"
 
@@ -16,23 +17,5 @@ class IncognitoExpansion(private val plugin: Incognito, private val service: Inc
 
     override fun persist(): Boolean = true
 
-    override fun onRequest(player: OfflinePlayer?, params: String): String? {
-        val identity = player?.let { service.identity(it.uniqueId) }
-        return when (params.lowercase()) {
-            "enabled" -> (identity != null).toString()
-            "name" -> identity?.alias ?: player?.name.orEmpty()
-            "realname" -> RevealedNames.placeholder(player, identity)
-            "x", "y", "z", "world" -> {
-                val location = player?.player?.location ?: return ""
-                val offset = service.offset(player.uniqueId)
-                when (params.lowercase()) {
-                    "x" -> (location.blockX + offset.x).toString()
-                    "y" -> location.blockY.toString()
-                    "z" -> (location.blockZ + offset.z).toString()
-                    else -> location.world.name
-                }
-            }
-            else -> null
-        }
-    }
+    override fun onRequest(player: OfflinePlayer?, params: String): String? = placeholders.value(player, params)
 }

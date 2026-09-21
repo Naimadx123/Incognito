@@ -18,6 +18,7 @@ dependencies {
     compileOnly("io.papermc.paper:paper-api:${providers.gradleProperty("paperApiVersion").getOrElse("1.21.8-R0.1-SNAPSHOT")}")
     compileOnly("io.netty:netty-transport:4.2.18.Final")
     compileOnly("me.clip:placeholderapi:2.12.3")
+    compileOnly("io.github.miniplaceholders:miniplaceholders-api:3.1.0")
     testImplementation(kotlin("test"))
 }
 

@@ -19,6 +19,8 @@ class IncognitoService(private val plugin: Incognito, val settings: IncognitoCon
     private val identities = ConcurrentHashMap<UUID, Identity>()
     private val originalNames = ConcurrentHashMap<UUID, Pair<Component, Component?>>()
     val coordinateSessions = CoordinateSessions(File(plugin.dataFolder, "coordinate-sessions.yml"))
+    private val randomLength = minOf(10, 16 - settings.aliasFormat.replace("{random}", "").length)
+    private val aliasPattern = Regex(settings.aliasFormat.split("{random}").joinToString("[a-f0-9]{$randomLength}") { Regex.escape(it) })
     private val playersByName: MutableMap<String, Any> by lazy {
         val server = plugin.server.javaClass.getMethod("getServer").invoke(plugin.server)
         val list = server.javaClass.getMethod("getPlayerList").invoke(server)
@@ -42,8 +44,8 @@ class IncognitoService(private val plugin: Incognito, val settings: IncognitoCon
 
     fun enable(player: Player, requested: String? = null, kick: Boolean = true): Identity {
         identities[player.uniqueId]?.let { return it }
-        val alias = requested?.takeIf { it.matches(Regex("Anon_[a-f0-9]{10}")) && available(it) }
-            ?: generateSequence { "Anon_${UUID.randomUUID().toString().replace("-", "").take(10)}" }.first(::available)
+        val alias = requested?.takeIf { it.matches(aliasPattern) && available(it) }
+            ?: generateSequence { settings.aliasFormat.replace("{random}", UUID.randomUUID().toString().replace("-", "").take(randomLength)) }.first(::available)
         val reconnect = settings.coordinates && coordinateSessions.enable(player.uniqueId)
         val identity = Identity(player.uniqueId, player.name, if (settings.names) alias else player.name)
         identities[player.uniqueId] = identity
