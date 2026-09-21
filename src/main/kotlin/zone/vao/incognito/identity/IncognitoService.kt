@@ -10,6 +10,8 @@ import zone.vao.incognito.Incognito
 import zone.vao.incognito.config.IncognitoConfig
 import zone.vao.incognito.command.CommandNames
 import zone.vao.incognito.packet.NativeReflection
+import zone.vao.incognito.packet.ComponentMasker
+import zone.vao.incognito.packet.TextMasker
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import zone.vao.incognito.coordinate.CoordinateOffset
@@ -25,6 +27,7 @@ class IncognitoService(private val plugin: Incognito, val settings: IncognitoCon
     private val sessionIdentities = ConcurrentHashMap<UUID, Identity>()
     private val preparedSessions = ConcurrentHashMap.newKeySet<UUID>()
     private val aliases = SessionAliases(settings.aliasFormat)
+    private val headText = ComponentMasker(TextMasker(emptyList()))
     private val originalNames = ConcurrentHashMap<UUID, Pair<Component, Component?>>()
     private val suggestionNames = SuggestionNames()
     private val nameTasks = ConcurrentHashMap<UUID, ScheduledTask>()
@@ -111,13 +114,18 @@ class IncognitoService(private val plugin: Incognito, val settings: IncognitoCon
         if (item.type != Material.PLAYER_HEAD) return false
         val meta = item.itemMeta as? SkullMeta ?: return false
         val profile = meta.playerProfile ?: return false
-        val identity = profile.id?.let(::identity)
-            ?: profile.name?.let { name -> identities.values.firstOrNull { it.realName.equals(name, true) } }
+        val identity = HeadProfiles.find(profile.id, profile.name, profile.properties.filter { it.name == "textures" }.map { it.value }, sessionIdentities.values)
             ?: return false
-        val masked = plugin.server.createProfile(identity.id, identity.alias)
+        val masked = plugin.server.createProfileExact(if (settings.skin) HeadProfiles.maskedId(identity) else identity.id, identity.alias)
         if (!settings.skin) profile.properties.forEach(masked::setProperty)
         else if (settings.texture.isNotEmpty()) masked.setProperty(ProfileProperty("textures", settings.texture, settings.signature))
         meta.playerProfile = masked
+        if (settings.names) {
+            val names = listOf(identity)
+            meta.displayName()?.let { meta.displayName(headText.mask(it, names, CoordinateOffset.ZERO)) }
+            if (meta.hasItemName()) meta.itemName(headText.mask(meta.itemName(), names, CoordinateOffset.ZERO))
+            meta.lore()?.let { lore -> meta.lore(lore.map { headText.mask(it, names, CoordinateOffset.ZERO) }) }
+        }
         item.itemMeta = meta
         return true
     }
