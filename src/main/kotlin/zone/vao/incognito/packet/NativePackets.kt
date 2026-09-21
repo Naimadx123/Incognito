@@ -61,7 +61,7 @@ internal class NativePackets(private val settings: IncognitoConfig, private val 
         "ClientboundBossEventPacket", "ClientboundSetEntityDataPacket",
         "ClientboundContainerSetSlotPacket", "ClientboundContainerSetContentPacket", "ClientboundSetEquipmentPacket",
         "ClientboundSetCursorItemPacket", "ClientboundSetPlayerInventoryPacket", "ClientboundBlockEntityDataPacket",
-        "ClientboundLevelChunkWithLightPacket",
+        "ClientboundLevelChunkWithLightPacket", "ClientboundResetScorePacket",
     )
     private val textContainers = setOf("net.minecraft.network.chat.ChatType\$Bound", "net.minecraft.network.syncher.SynchedEntityData\$DataValue")
 
@@ -126,7 +126,16 @@ internal class NativePackets(private val settings: IncognitoConfig, private val 
         if (type.name == "net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket") return maskProfiles(result, identities, names, id, reveal)
         val heads = if (settings.heads && (settings.names || settings.skin)) identities else emptyList()
         if (names.isEmpty() && heads.isEmpty() && offset == CoordinateOffset.ZERO && !RevealedNames.active() || type.packageName != "net.minecraft.network.protocol.game" || type.simpleName !in textPackets) return result
-        return transform(if (result !== packet || type.isRecord) result else copy(packet), names, offset, reveal, heads)
+        val masked = transform(if (result !== packet || type.isRecord) result else copy(packet), names, offset, reveal, heads)!!
+        if (names.isEmpty()) return masked
+        return when (type.simpleName) {
+            "ClientboundSetScorePacket", "ClientboundResetScorePacket" -> NativeReflection.record(masked) { name, value -> if (name == "owner") text.mask(value as String, names, CoordinateOffset.ZERO) else value }
+            "ClientboundSetPlayerTeamPacket" -> masked.also { team ->
+                val players = NativeReflection.fields(type).first { it.name == "players" }
+                players.set(team, (players.get(team) as Collection<*>).map { text.mask(it as String, names, CoordinateOffset.ZERO) })
+            }
+            else -> masked
+        }
     }
 
     fun inbound(packet: Any, identities: List<Identity>, offset: CoordinateOffset, requests: MutableMap<Int, SuggestionRequest>, id: UUID? = null): Any {

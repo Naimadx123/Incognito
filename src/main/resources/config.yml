@@ -30,6 +30,7 @@ coordinates:
     - '(?<![\w.])(?<x>-?\d+(?:\.\d+)?)(?:\s*[,;]\s*|\s+)-?\d+(?:\.\d+)?(?:\s*[,;]\s*|\s+)(?<z>-?\d+(?:\.\d+)?)(?![\w.])'
     - '\bx\s*[:=]\s*(?<x>-?\d+(?:\.\d+)?)'
     - '\bz\s*[:=]\s*(?<z>-?\d+(?:\.\d+)?)'
+    - '\[(?<x>-?\d+), ~, (?<z>-?\d+)\]'
 
 placeholders:
   # Wrap every PlaceholderAPI expansion so placeholder results (%player_name%, %player_x%, ...)
