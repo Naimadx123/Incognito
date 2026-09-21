@@ -8,7 +8,7 @@ folia-supported: true
 softdepend: [PlaceholderAPI]
 permissions:
   incognito.use:
-    default: true
+    default: op
   incognito.admin:
     default: op
   incognito.reveal:

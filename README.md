@@ -17,7 +17,7 @@ Copy `build/libs/Incognito-v1.0-SNAPSHOT.jar` into `plugins` and restart the ser
 
 | Command | Permission | Action |
 | --- | --- | --- |
-| `/incognito`, `/incognito on\|off` | `incognito.use` (everyone) | Toggles incognito mode |
+| `/incognito`, `/incognito on\|off` | `incognito.use` (OP) | Toggles incognito mode |
 | `/incognito status` | `incognito.use` | Shows status and alias |
 | `/incognito player <player> [on\|off]` | `incognito.admin` (OP) | Changes another player's incognito mode |
 
