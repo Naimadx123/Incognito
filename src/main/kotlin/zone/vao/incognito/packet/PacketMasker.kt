@@ -89,6 +89,7 @@ class PacketMasker(
                 if (channels.remove(id, channel)) sessionOffsets.remove(id)
             }
             val requests = ConcurrentHashMap<Int, SuggestionRequest>()
+            val profiles = ProfileIds(id)
             val install = Runnable {
                 if (!closed && channel.isActive) {
                     try {
@@ -96,14 +97,14 @@ class PacketMasker(
                         if (settings.debug) plugin.logger.info("[debug] pipeline $id offset=$offset reveal=${plugin.server.getPlayer(id)?.hasPermission("incognito.reveal")}: ${channel.pipeline().names()}")
                         if (channel.pipeline().get(handlerName) == null) {
                             channel.pipeline().addBefore("packet_handler", handlerName, OutboundMaskHandler(
-                                transform = { native.mask(it, service.identities(), offset, requests, id, plugin.server.getPlayer(id)?.hasPermission("incognito.reveal") == true) },
+                                transform = { native.mask(it, service.identities(), offset, requests, id, plugin.server.getPlayer(id)?.hasPermission("incognito.reveal") == true, profiles) },
                                 failure = { packet, error ->
                                     if (failures.add(packet.javaClass.name)) {
                                         plugin.logger.log(Level.SEVERE, "Blocked ${packet.javaClass.simpleName}: packet transformation failed.", error)
                                     }
                                     if (offset != CoordinateOffset.ZERO) channel.close()
                                 },
-                                inbound = { native.inbound(it, service.identities(), offset, requests, id) },
+                                inbound = { native.inbound(it, service.identities(), offset, requests, id, profiles) },
                             ))
                         }
                     } catch (exception: Exception) {

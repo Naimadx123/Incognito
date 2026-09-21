@@ -68,17 +68,17 @@ internal class NativePackets(private val settings: IncognitoConfig, private val 
     private val textContainers = setOf("net.minecraft.network.chat.ChatType\$Bound", "net.minecraft.network.syncher.SynchedEntityData\$DataValue")
 
     fun validate() {
-        (textPackets + "ClientboundPlayerInfoUpdatePacket").forEach {
+        (textPackets + setOf("ClientboundPlayerInfoUpdatePacket", "ClientboundPlayerInfoRemovePacket", "ClientboundAddEntityPacket", "ClientboundTrackedWaypointPacket", "ServerboundTeleportToEntityPacket")).forEach {
             codec(Class.forName("net.minecraft.network.protocol.game.$it"))
         }
         val probe = profileConstructor.newInstance(UUID(0, 0), "ExamplePlayer")
         check(gameProfile.invoke(probe) != null)
     }
 
-    fun mask(packet: Any, identities: List<Identity>, offset: CoordinateOffset = CoordinateOffset.ZERO, requests: MutableMap<Int, SuggestionRequest> = HashMap(), id: UUID? = null, reveal: Boolean = false): Any? {
+    fun mask(packet: Any, identities: List<Identity>, offset: CoordinateOffset = CoordinateOffset.ZERO, requests: MutableMap<Int, SuggestionRequest> = HashMap(), id: UUID? = null, reveal: Boolean = false, profiles: ProfileIds = ProfileIds(id)): Any? {
         val type = packet.javaClass
         val names = if (settings.names) identities else emptyList()
-        if (type.name == "net.minecraft.network.protocol.game.ClientboundPlayerChatPacket" && (names.isNotEmpty() || RevealedNames.active())) return mask(disguise(packet), identities, offset, requests, id, reveal)
+        if (type.name == "net.minecraft.network.protocol.game.ClientboundPlayerChatPacket" && (names.isNotEmpty() || RevealedNames.active())) return mask(disguise(packet), identities, offset, requests, id, reveal, profiles)
         if (type.simpleName == "ClientboundDisguisedChatPacket") {
             return NativeReflection.record(packet) { name, value ->
                 transform(value, if (name == "message") emptyList() else names, offset, reveal)
@@ -95,7 +95,7 @@ internal class NativePackets(private val settings: IncognitoConfig, private val 
         }
         if (type.name == "net.minecraft.network.protocol.game.ClientboundBundlePacket") {
             val packets = type.getMethod("subPackets").invoke(packet) as Iterable<*>
-            val masked = packets.mapNotNull { it?.let { mask(it, identities, offset, requests, id, reveal) } }
+            val masked = packets.mapNotNull { it?.let { mask(it, identities, offset, requests, id, reveal, profiles) } }
             return if (masked.isEmpty()) null else type.getConstructor(Iterable::class.java).newInstance(masked)
         }
         if (type.name == "net.minecraft.network.protocol.game.ClientboundCustomChatCompletionsPacket" && names.isNotEmpty() && settings.namesTabComplete) {
@@ -140,7 +140,13 @@ internal class NativePackets(private val settings: IncognitoConfig, private val 
             result = coordinateMapper.translate(copy(packet), offset)
             debug("$id:out:" + type.name) { "outbound $id ${type.simpleName}: ${describe(packet).take(300)} -> ${describe(result).take(300)}" }
         }
-        if (type.name == "net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket") return maskProfiles(result, identities, names, id, reveal)
+        if (type.name == "net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket") return maskProfiles(result, identities, names, id, reveal, profiles)
+        if (type.simpleName == "ClientboundPlayerInfoRemovePacket") {
+            return NativeReflection.record(result) { _, value -> (value as List<*>).map { profiles.remove(it as UUID, names) } }
+        }
+        if (names.isNotEmpty() && type.simpleName in setOf("ClientboundAddEntityPacket", "ClientboundTrackedWaypointPacket")) {
+            result = profileReferences(if (result !== packet || type.isRecord) result else copy(packet), names, profiles)!!
+        }
         val heads = if (settings.heads && (settings.names || settings.skin)) identities else emptyList()
         if (names.isEmpty() && heads.isEmpty() && offset == CoordinateOffset.ZERO && !RevealedNames.active() || type.packageName != "net.minecraft.network.protocol.game" || type.simpleName !in textPackets) return result
         val masked = transform(if (result !== packet || type.isRecord) result else copy(packet), names, offset, reveal, heads)!!
@@ -155,9 +161,14 @@ internal class NativePackets(private val settings: IncognitoConfig, private val 
         }
     }
 
-    fun inbound(packet: Any, identities: List<Identity>, offset: CoordinateOffset, requests: MutableMap<Int, SuggestionRequest>, id: UUID? = null): Any {
+    fun inbound(packet: Any, identities: List<Identity>, offset: CoordinateOffset, requests: MutableMap<Int, SuggestionRequest>, id: UUID? = null, profiles: ProfileIds = ProfileIds(id)): Any {
         val type = packet.javaClass
         val names = if (settings.names) identities else emptyList()
+        if (type.simpleName == "ServerboundTeleportToEntityPacket") {
+            val target = field(packet, "uuid") as UUID
+            val restored = profiles.inbound(target, names)
+            return if (restored == target) packet else type.getConstructor(UUID::class.java).newInstance(restored)
+        }
         if (type.name == "net.minecraft.network.protocol.game.ServerboundCommandSuggestionPacket") {
             val request = SuggestionRequest.create(field(packet, "command") as String, if (settings.namesTabComplete) names else emptyList(), false)
             requests[field(packet, "id") as Int] = request
@@ -182,7 +193,7 @@ internal class NativePackets(private val settings: IncognitoConfig, private val 
         if (settings.debug && logged.add(key)) logger.info("[debug] ${message()}")
     }
 
-    private fun maskProfiles(packet: Any, identities: List<Identity>, names: List<Identity>, viewer: UUID?, reveal: Boolean): Any {
+    private fun maskProfiles(packet: Any, identities: List<Identity>, names: List<Identity>, viewer: UUID?, reveal: Boolean, profiles: ProfileIds): Any {
         val fields = NativeReflection.fields(packet.javaClass)
         val actions = fields.single { EnumSet::class.java.isAssignableFrom(it.type) }.get(packet)
         val entries = fields.single { List::class.java.isAssignableFrom(it.type) }.get(packet) as List<*>
@@ -191,9 +202,12 @@ internal class NativePackets(private val settings: IncognitoConfig, private val 
             requireNotNull(entry)
             val id = entry.javaClass.getMethod("profileId").invoke(entry) as UUID
             val identity = byId[id]
+            val maskedId = profiles.profile(id, names, (actions as EnumSet<*>).any { (it as Enum<*>).name == "ADD_PLAYER" })
             NativeReflection.record(entry) { name, value ->
                 when (name) {
-                    "profile" -> if (identity == null || !settings.names && !settings.skin) value else createProfile(identity, value, settings.skin && identity.id != viewer)
+                    "profileId" -> maskedId
+                    "chatSession" -> if (maskedId != id) null else value
+                    "profile" -> if (identity == null || !settings.names && !settings.skin) value else createProfile(identity, maskedId, value, settings.skin && identity.id != viewer)
                     "displayName" -> transform(value, names, CoordinateOffset.ZERO, reveal)
                     else -> value
                 }
@@ -202,11 +216,31 @@ internal class NativePackets(private val settings: IncognitoConfig, private val 
         return packet.javaClass.getConstructor(EnumSet::class.java, List::class.java).newInstance(actions, masked)
     }
 
-    private fun createProfile(identity: Identity, original: Any?, hideSkin: Boolean): Any {
-        val profile = profileConstructor.newInstance(identity.id, identity.alias) as PlayerProfile
+    private fun createProfile(identity: Identity, id: UUID, original: Any?, hideSkin: Boolean): Any {
+        val profile = profileConstructor.newInstance(id, identity.alias) as PlayerProfile
         if (!hideSkin && original != null) (bukkitProfile.invoke(null, original) as PlayerProfile).properties.forEach(profile::setProperty)
         else if (hideSkin && settings.texture.isNotEmpty()) profile.setProperty(ProfileProperty("textures", settings.texture, settings.signature))
         return gameProfile.invoke(profile)
+    }
+
+    private fun profileReferences(value: Any?, identities: List<Identity>, profiles: ProfileIds): Any? {
+        if (value == null) return null
+        if (value is UUID) return profiles.outbound(value, identities)
+        if (value is Optional<*>) return value.map { profileReferences(it, identities, profiles) }
+        val type = value.javaClass
+        if (type.name.startsWith("com.mojang.datafixers.util.Either")) {
+            val either = Class.forName("com.mojang.datafixers.util.Either")
+            val left = either.getMethod("left").invoke(value) as Optional<*>
+            return if (left.isPresent && left.get() is UUID) either.getMethod("left", Any::class.java).invoke(null, profiles.outbound(left.get() as UUID, identities)) else value
+        }
+        if (type.isEnum || type.packageName !in setOf("net.minecraft.network.protocol.game", "net.minecraft.world.waypoints")) return value
+        if (type.isRecord) return NativeReflection.record(value) { _, part -> profileReferences(part, identities, profiles) }
+        NativeReflection.fields(type).forEach { field ->
+            val original = field.get(value)
+            val masked = profileReferences(original, identities, profiles)
+            if (masked !== original) field.set(value, masked)
+        }
+        return value
     }
 
     private fun transform(value: Any?, identities: List<Identity>, offset: CoordinateOffset, reveal: Boolean, heads: List<Identity> = emptyList()): Any? {
@@ -261,6 +295,11 @@ internal class NativePackets(private val settings: IncognitoConfig, private val 
         val copy = compoundType.getMethod("copy").invoke(tag)
         val masked = (compoundType.getMethod("getCompound", String::class.java).invoke(copy, "profile") as Optional<*>).get()
         compoundType.getMethod("putString", String::class.java, String::class.java).invoke(masked, "name", identity.alias)
+        val id = identity.maskedId
+        compoundType.getMethod("putIntArray", String::class.java, IntArray::class.java).invoke(masked, "id", intArrayOf(
+            (id.mostSignificantBits shr 32).toInt(), id.mostSignificantBits.toInt(),
+            (id.leastSignificantBits shr 32).toInt(), id.leastSignificantBits.toInt(),
+        ))
         if (!settings.skin) return copy
         compoundType.getMethod("remove", String::class.java).invoke(masked, "properties")
         if (settings.texture.isNotEmpty()) {

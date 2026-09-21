@@ -11,6 +11,7 @@ import zone.vao.incognito.coordinate.CoordinateOffset
 import zone.vao.incognito.identity.Identity
 import zone.vao.incognito.identity.RevealedNames
 import zone.vao.incognito.command.CommandNames
+import java.util.UUID
 
 class ComponentMasker(private val text: TextMasker, private val fallback: (String) -> Unit = {}) {
 
@@ -37,7 +38,7 @@ class ComponentMasker(private val text: TextMasker, private val fallback: (Strin
     fun mask(component: Component, identities: List<Identity>, offset: CoordinateOffset, reveal: Boolean = false): Component {
         if (identities.isEmpty() && offset == CoordinateOffset.ZERO && !RevealedNames.active() && !CommandNames.contains(codec.serialize(component)) && !CommandNames.contains(plain.serialize(component))) return component
         val names = identities
-        var masked = visit(component) { text.mask(it, names, offset) }
+        var masked = visit(component, { id -> names.firstOrNull { it.id == id }?.maskedId ?: id }) { text.mask(it, names, offset) }
         if (text.exposes(plain.serialize(masked), names) || text.exposes(codec.serialize(masked), names)) {
             fallback(codec.serialize(component))
             masked = Component.text(text.mask(plain.serialize(component), names, offset))
@@ -47,16 +48,16 @@ class ComponentMasker(private val text: TextMasker, private val fallback: (Strin
         return if (masked == component) component else masked
     }
 
-    private fun visit(component: Component, replace: (String) -> String): Component {
+    private fun visit(component: Component, profileId: (UUID) -> UUID = { it }, replace: (String) -> String): Component {
         var result = when (component) {
             is TextComponent -> component.content(replace(component.content()))
-            is TranslatableComponent -> component.arguments(component.arguments().map { visit(it.asComponent(), replace) })
+            is TranslatableComponent -> component.arguments(component.arguments().map { visit(it.asComponent(), profileId, replace) })
             else -> component
         }
-        result = result.children(result.children().map { visit(it, replace) })
+        result = result.children(result.children().map { visit(it, profileId, replace) })
         when (val hover = result.hoverEvent()?.value()) {
-            is Component -> result = result.hoverEvent(HoverEvent.showText(visit(hover, replace)))
-            is HoverEvent.ShowEntity -> hover.name()?.let { result = result.hoverEvent(HoverEvent.showEntity(hover.type(), hover.id(), visit(it, replace))) }
+            is Component -> result = result.hoverEvent(HoverEvent.showText(visit(hover, profileId, replace)))
+            is HoverEvent.ShowEntity -> result = result.hoverEvent(HoverEvent.showEntity(hover.type(), profileId(hover.id()), hover.name()?.let { visit(it, profileId, replace) }))
         }
         result.insertion()?.let { result = result.insertion(replace(it)) }
         val click = result.clickEvent()

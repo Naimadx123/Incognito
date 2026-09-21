@@ -116,7 +116,7 @@ class IncognitoService(private val plugin: Incognito, val settings: IncognitoCon
         val profile = meta.playerProfile ?: return false
         val identity = HeadProfiles.find(profile.id, profile.name, profile.properties.filter { it.name == "textures" }.map { it.value }, sessionIdentities.values)
             ?: return false
-        val masked = plugin.server.createProfileExact(if (settings.skin) HeadProfiles.maskedId(identity) else identity.id, identity.alias)
+        val masked = plugin.server.createProfileExact(if (settings.names || settings.skin) HeadProfiles.maskedId(identity) else identity.id, identity.alias)
         if (!settings.skin) profile.properties.forEach(masked::setProperty)
         else if (settings.texture.isNotEmpty()) masked.setProperty(ProfileProperty("textures", settings.texture, settings.signature))
         meta.playerProfile = masked

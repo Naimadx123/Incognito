@@ -88,7 +88,7 @@ class ComponentMaskerTest {
         assertEquals(expected, masker.mask(component, listOf(identity), offset))
         val entity = Component.text("ExamplePlayer").hoverEvent(HoverEvent.showEntity(Key.key("minecraft:player"), identity.id, Component.text("ExamplePlayer")))
             .clickEvent(ClickEvent.suggestCommand("/tell ExamplePlayer ")).insertion("ExamplePlayer")
-        val maskedEntity = Component.text("Anon_0123456789").hoverEvent(HoverEvent.showEntity(Key.key("minecraft:player"), identity.id, Component.text("Anon_0123456789")))
+        val maskedEntity = Component.text("Anon_0123456789").hoverEvent(HoverEvent.showEntity(Key.key("minecraft:player"), identity.maskedId, Component.text("Anon_0123456789")))
             .clickEvent(ClickEvent.suggestCommand("/tell Anon_0123456789 ")).insertion("Anon_0123456789")
         assertEquals(maskedEntity, masker.mask(entity, listOf(identity), offset))
         val styled = Component.text("ExamplePlayer", NamedTextColor.RED).append(Component.text(" X: 1", NamedTextColor.GREEN))
