@@ -27,7 +27,7 @@ class CommandNamesTest {
     fun `every occurrence in command arguments including message text is rewritten consistently`() {
         val command = "/msg Notch hey nOtCh and NOTCH!"
         val rewritten = rewrite(command)
-        val tokens = Regex("__incognito_[a-f0-9]{32}_[A-Za-z0-9_]{1,16}__").findAll(rewritten).map { it.value }.toList()
+        val tokens = Regex("__incognito_[a-f0-9]{32}__").findAll(rewritten).map { it.value }.toList()
         assertEquals(3, tokens.size)
         assertEquals(1, tokens.distinct().size)
         assertTrue(tokens.first().length > 16)
@@ -48,7 +48,7 @@ class CommandNamesTest {
     @Test
     fun `quotes selectors and original whitespace are preserved`() {
         val rewritten = rewrite("/custom\t\"Notch\"  @a[name=Notch]  ")
-        val tokens = Regex("__incognito_[a-f0-9]{32}_[A-Za-z0-9_]{1,16}__").findAll(rewritten).map { it.value }.toList()
+        val tokens = Regex("__incognito_[a-f0-9]{32}__").findAll(rewritten).map { it.value }.toList()
         assertEquals(2, tokens.size)
         assertEquals("/custom\t\"${tokens.first()}\"  @a[name=${tokens.first()}]  ", rewritten)
     }

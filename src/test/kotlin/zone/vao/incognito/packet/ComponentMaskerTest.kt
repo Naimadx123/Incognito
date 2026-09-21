@@ -12,6 +12,7 @@ import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertSame
+import kotlin.test.assertFalse
 
 class ComponentMaskerTest {
 
@@ -20,16 +21,18 @@ class ComponentMaskerTest {
     private val masker = ComponentMasker(TextMasker(listOf(Regex("X: (?<x>-?\\d+)"))))
 
     @Test
-    fun `plugin errors display aliases instead of internal lookup identifiers`() {
+    fun `plugin errors never reveal the alias linked to a real name lookup`() {
         val token = CommandNames.rewrite("/alts ${identity.realName}", listOf(identity)) { true }.substringAfter(' ')
+        assertFalse(token.contains(identity.alias))
+        assertFalse(token.contains(identity.realName))
         val message = Component.text("Error: Player $token was never on this server.", NamedTextColor.RED)
             .hoverEvent(HoverEvent.showText(Component.text(token)))
-        val expected = Component.text("Error: Player ${identity.alias} was never on this server.", NamedTextColor.RED)
-            .hoverEvent(HoverEvent.showText(Component.text(identity.alias)))
+        val expected = Component.text("Error: Player unknown was never on this server.", NamedTextColor.RED)
+            .hoverEvent(HoverEvent.showText(Component.text("unknown")))
         assertEquals(expected, masker.system(message, listOf(identity), CoordinateOffset.ZERO, true))
         assertEquals(expected, masker.system(message, emptyList(), CoordinateOffset.ZERO))
         val split = Component.text("Error: Player ${token.take(20)}").append(Component.text("${token.drop(20)} was never on this server."))
-        assertEquals(Component.text("Error: Player ${identity.alias} was never on this server."), masker.system(split, emptyList(), CoordinateOffset.ZERO))
+        assertEquals(Component.text("Error: Player unknown was never on this server."), masker.system(split, emptyList(), CoordinateOffset.ZERO))
     }
 
     @Test
