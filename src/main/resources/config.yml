@@ -44,6 +44,11 @@ skin:
   value: ''
   signature: ''
 
+# Mask player heads in packets: inventories, dropped items, equipment, placed skulls and chunk data.
+# Viewers see the alias and the hidden or shared skin; the items themselves keep the real profile,
+# so heads look normal again once incognito is disabled.
+heads: true
+
 # Log packet translations and pipeline details. Only for troubleshooting.
 debug: false
 

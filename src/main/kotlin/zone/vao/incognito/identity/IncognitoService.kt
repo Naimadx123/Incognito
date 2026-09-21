@@ -1,6 +1,10 @@
 package zone.vao.incognito.identity
 
+import com.destroystokyo.paper.profile.ProfileProperty
 import net.kyori.adventure.text.Component
+import org.bukkit.Material
+import org.bukkit.inventory.ItemStack
+import org.bukkit.inventory.meta.SkullMeta
 import org.bukkit.NamespacedKey
 import org.bukkit.entity.Player
 import org.bukkit.persistence.PersistentDataType
@@ -78,6 +82,21 @@ class IncognitoService(private val plugin: Incognito, val settings: IncognitoCon
                 player.kick(settings.messages.get("reconnect-disabled"))
             } else if (reconnect) player.sendMessage(settings.messages.get("relog-disabled"))
         }
+    }
+
+    fun maskHead(item: ItemStack): Boolean {
+        if (item.type != Material.PLAYER_HEAD) return false
+        val meta = item.itemMeta as? SkullMeta ?: return false
+        val profile = meta.playerProfile ?: return false
+        val identity = profile.id?.let(::identity)
+            ?: profile.name?.let { name -> identities.values.firstOrNull { it.realName.equals(name, true) } }
+            ?: return false
+        val masked = plugin.server.createProfile(identity.id, identity.alias)
+        if (!settings.skin) profile.properties.forEach(masked::setProperty)
+        else if (settings.texture.isNotEmpty()) masked.setProperty(ProfileProperty("textures", settings.texture, settings.signature))
+        meta.playerProfile = masked
+        item.itemMeta = meta
+        return true
     }
 
     fun forget(player: Player) {

@@ -12,13 +12,14 @@ import zone.vao.incognito.identity.RevealedNames
 import zone.vao.incognito.coordinate.CoordinateOffset
 import zone.vao.incognito.coordinate.CoordinateMapper
 import java.lang.reflect.Modifier
+import org.bukkit.inventory.ItemStack
 import java.util.logging.Logger
 import java.util.EnumSet
 import java.util.Optional
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
-internal class NativePackets(private val settings: IncognitoConfig, private val logger: Logger) : AutoCloseable {
+internal class NativePackets(private val settings: IncognitoConfig, private val logger: Logger, private val headMasker: (ItemStack) -> Boolean) : AutoCloseable {
 
     private val text = TextMasker(settings.coordinatePatterns)
     private val components = ComponentMasker(text) { json -> debug("fallback:$json") { "component flattened: $json" } }
@@ -40,6 +41,16 @@ internal class NativePackets(private val settings: IncognitoConfig, private val 
     private val buffer = Class.forName("net.minecraft.network.RegistryFriendlyByteBuf").getConstructor(ByteBuf::class.java, registryType)
     private val server = Bukkit.getServer().javaClass.getMethod("getServer").invoke(Bukkit.getServer())
     private val registry = server.javaClass.getMethod("registryAccess").invoke(server)
+    private val itemStackType = Class.forName("net.minecraft.world.item.ItemStack")
+    private val getItem = itemStackType.getMethod("getItem")
+    private val playerHead = Class.forName("net.minecraft.world.item.Items").getField("PLAYER_HEAD").get(null)
+    private val craftItemStack = Class.forName("org.bukkit.craftbukkit.inventory.CraftItemStack")
+    private val toBukkit = craftItemStack.methods.first { it.name == "asBukkitCopy" && it.parameterCount == 1 }
+    private val toNms = craftItemStack.getMethod("asNMSCopy", ItemStack::class.java)
+    private val compoundType = Class.forName("net.minecraft.nbt.CompoundTag")
+    private val listTagType = Class.forName("net.minecraft.nbt.ListTag")
+    private val tagType = Class.forName("net.minecraft.nbt.Tag")
+    private val pairType = Class.forName("com.mojang.datafixers.util.Pair")
     private val codecs = ConcurrentHashMap<Class<*>, Any>()
     private val logged = ConcurrentHashMap.newKeySet<String>()
     private val coordinateMapper = CoordinateMapper()
@@ -48,6 +59,9 @@ internal class NativePackets(private val settings: IncognitoConfig, private val 
         "ClientboundSetTitleTextPacket", "ClientboundSetSubtitleTextPacket", "ClientboundTabListPacket",
         "ClientboundSetObjectivePacket", "ClientboundSetPlayerTeamPacket", "ClientboundSetScorePacket",
         "ClientboundBossEventPacket", "ClientboundSetEntityDataPacket",
+        "ClientboundContainerSetSlotPacket", "ClientboundContainerSetContentPacket", "ClientboundSetEquipmentPacket",
+        "ClientboundSetCursorItemPacket", "ClientboundSetPlayerInventoryPacket", "ClientboundBlockEntityDataPacket",
+        "ClientboundLevelChunkWithLightPacket",
     )
     private val textContainers = setOf("net.minecraft.network.chat.ChatType\$Bound", "net.minecraft.network.syncher.SynchedEntityData\$DataValue")
 
@@ -110,8 +124,9 @@ internal class NativePackets(private val settings: IncognitoConfig, private val 
             debug("$id:out:" + type.name) { "outbound $id ${type.simpleName}: ${describe(packet).take(300)} -> ${describe(result).take(300)}" }
         }
         if (type.name == "net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket") return maskProfiles(result, identities, names, id, reveal)
-        if (names.isEmpty() && offset == CoordinateOffset.ZERO && !RevealedNames.active() || type.packageName != "net.minecraft.network.protocol.game" || type.simpleName !in textPackets) return result
-        return transform(if (result !== packet || type.isRecord) result else copy(packet), names, offset, reveal)
+        val heads = if (settings.heads && (settings.names || settings.skin)) identities else emptyList()
+        if (names.isEmpty() && heads.isEmpty() && offset == CoordinateOffset.ZERO && !RevealedNames.active() || type.packageName != "net.minecraft.network.protocol.game" || type.simpleName !in textPackets) return result
+        return transform(if (result !== packet || type.isRecord) result else copy(packet), names, offset, reveal, heads)
     }
 
     fun inbound(packet: Any, identities: List<Identity>, offset: CoordinateOffset, requests: MutableMap<Int, SuggestionRequest>, id: UUID? = null): Any {
@@ -165,24 +180,61 @@ internal class NativePackets(private val settings: IncognitoConfig, private val 
         return gameProfile.invoke(profile)
     }
 
-    private fun transform(value: Any?, identities: List<Identity>, offset: CoordinateOffset, reveal: Boolean): Any? {
+    private fun transform(value: Any?, identities: List<Identity>, offset: CoordinateOffset, reveal: Boolean, heads: List<Identity> = emptyList()): Any? {
         if (value == null) return null
         if (value is Component) return components.mask(value, identities, offset, reveal)
         if (componentType.isInstance(value)) {
             val adventure = toAdventure.invoke(null, value) as Component
             return toVanilla.invoke(null, components.mask(adventure, identities, offset, reveal))
         }
-        if (value is Optional<*>) return value.map { transform(it, identities, offset, reveal) }
-        if (value is List<*>) return value.map { transform(it, identities, offset, reveal) }
+        if (value is Optional<*>) return value.map { transform(it, identities, offset, reveal, heads) }
+        if (value is List<*>) return value.map { transform(it, identities, offset, reveal, heads) }
         val type = value.javaClass
+        if (heads.isNotEmpty()) {
+            if (itemStackType.isInstance(value)) return maskStack(value)
+            if (compoundType.isInstance(value)) return maskTag(value, heads)
+            if (pairType.isInstance(value)) {
+                val first = pairType.getMethod("getFirst").invoke(value)
+                val second = transform(pairType.getMethod("getSecond").invoke(value), identities, offset, reveal, heads)
+                return if (second === pairType.getMethod("getSecond").invoke(value)) value else pairType.getMethod("of", Any::class.java, Any::class.java).invoke(null, first, second)
+            }
+        }
         if (type.isEnum || type.packageName != "net.minecraft.network.protocol.game" && type.name !in textContainers) return value
-        if (type.isRecord) return NativeReflection.record(value) { _, part -> transform(part, identities, offset, reveal) }
+        if (type.isRecord) return NativeReflection.record(value) { _, part -> transform(part, identities, offset, reveal, heads) }
         NativeReflection.fields(type).forEach { field ->
             val original = field.get(value)
-            val masked = transform(original, identities, offset, reveal)
+            val masked = transform(original, identities, offset, reveal, heads)
             if (masked !== original) field.set(value, masked)
         }
         return value
+    }
+
+    private fun maskStack(stack: Any): Any {
+        if (getItem.invoke(stack) !== playerHead) return stack
+        val bukkit = toBukkit.invoke(null, stack) as ItemStack
+        return if (headMasker(bukkit)) toNms.invoke(null, bukkit) else stack
+    }
+
+    private fun maskTag(tag: Any, heads: List<Identity>): Any {
+        val profile = (compoundType.getMethod("getCompound", String::class.java).invoke(tag, "profile") as Optional<*>).orElse(null) ?: return tag
+        val name = (compoundType.getMethod("getString", String::class.java).invoke(profile, "name") as Optional<*>).orElse(null) as String? ?: return tag
+        val identity = heads.firstOrNull { it.realName.equals(name, true) } ?: return tag
+        val copy = compoundType.getMethod("copy").invoke(tag)
+        val masked = (compoundType.getMethod("getCompound", String::class.java).invoke(copy, "profile") as Optional<*>).get()
+        compoundType.getMethod("putString", String::class.java, String::class.java).invoke(masked, "name", identity.alias)
+        if (!settings.skin) return copy
+        compoundType.getMethod("remove", String::class.java).invoke(masked, "properties")
+        if (settings.texture.isNotEmpty()) {
+            val property = compoundType.getConstructor().newInstance()
+            val putString = compoundType.getMethod("putString", String::class.java, String::class.java)
+            putString.invoke(property, "name", "textures")
+            putString.invoke(property, "value", settings.texture)
+            putString.invoke(property, "signature", settings.signature)
+            val properties = listTagType.getConstructor().newInstance()
+            listTagType.getMethod("add", Any::class.java).invoke(properties, property)
+            compoundType.getMethod("put", String::class.java, tagType).invoke(masked, "properties", properties)
+        }
+        return copy
     }
 
     private fun disguise(packet: Any): Any {
