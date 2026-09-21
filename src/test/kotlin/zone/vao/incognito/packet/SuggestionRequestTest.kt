@@ -13,6 +13,32 @@ class SuggestionRequestTest {
     private val identities = listOf(identity)
 
     @Test
+    fun `plugin completion expands alias prefixes without restoring previous alias arguments`() {
+        val command = "/plugin:command ${identity.alias} Anon_01"
+        val request = SuggestionRequest.create(command, identities, false)
+        assertEquals("/plugin:command ${identity.alias} ", request.forwarded)
+        val start = request.start(request.forwarded.length)
+        val end = request.end(request.forwarded.length)
+        assertEquals(command.lastIndexOf("Anon_01"), start)
+        assertEquals(command.length, end)
+        assertTrue(request.accepts(identity.alias, start, end, identities))
+        assertFalse(request.accepts("OtherPlayer", start, end, identities))
+    }
+
+    @Test
+    fun `plugin message completion masks custom nicknames before matching the alias prefix`() {
+        val request = SuggestionRequest.create("/plugin:msg Anon_01", identities, false)
+        assertEquals("/plugin:msg ", request.forwarded)
+        val nickname = identity.copy(realName = "~CustomNickname")
+        val names = identities + nickname
+        val suggestion = TextMasker(emptyList()).suggestion("~CustomNickname", names, zone.vao.incognito.coordinate.CoordinateOffset.ZERO, 0)
+        assertEquals(identity.alias, suggestion)
+        assertTrue(request.accepts(suggestion, request.start(request.forwarded.length), request.end(request.forwarded.length), names))
+        val hidden = SuggestionRequest.create("/msg ~Custom", identities, false)
+        assertFalse(hidden.accepts(suggestion, 5, hidden.command.length, names))
+    }
+
+    @Test
     fun `expands alias prefixes and restores the replacement range`() {
         val request = SuggestionRequest.create("/tp Anon_01", identities)
         assertEquals("/tp ", request.forwarded)

@@ -35,7 +35,7 @@ class SuggestionRequest private constructor(
     }
 
     companion object {
-        fun create(command: String, identities: List<Identity>): SuggestionRequest {
+        fun create(command: String, identities: List<Identity>, restoreCompleted: Boolean = true): SuggestionRequest {
             val changes = ArrayList<Change>()
             val result = StringBuilder()
             var cursor = 0
@@ -43,7 +43,11 @@ class SuggestionRequest private constructor(
             Regex("\\S+").findAll(command).drop(1).forEach { token ->
                 val end = token.range.last + 1
                 val partial = end == command.length && identities.any { it.alias.startsWith(token.value, true) }
-                val replacement = if (partial) "" else identities.firstOrNull { it.alias.equals(token.value, true) }?.realName ?: return@forEach
+                val replacement = when {
+                    partial -> ""
+                    restoreCompleted -> identities.firstOrNull { it.alias.equals(token.value, true) }?.realName ?: return@forEach
+                    else -> return@forEach
+                }
                 result.append(command, cursor, token.range.first)
                 val start = result.length
                 result.append(replacement)

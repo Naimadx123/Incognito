@@ -5,9 +5,7 @@ import net.kyori.adventure.text.Component
 import org.bukkit.Material
 import org.bukkit.inventory.ItemStack
 import org.bukkit.inventory.meta.SkullMeta
-import org.bukkit.NamespacedKey
 import org.bukkit.entity.Player
-import org.bukkit.persistence.PersistentDataType
 import zone.vao.incognito.Incognito
 import zone.vao.incognito.config.IncognitoConfig
 import zone.vao.incognito.packet.NativeReflection
@@ -16,12 +14,16 @@ import java.util.concurrent.ConcurrentHashMap
 import zone.vao.incognito.coordinate.CoordinateOffset
 import zone.vao.incognito.coordinate.CoordinateSessions
 import java.io.File
+import zone.vao.incognito.storage.PlayerDataService
+import zone.vao.incognito.storage.PlayerRecord
+import io.papermc.paper.threadedregions.scheduler.ScheduledTask
 
-class IncognitoService(private val plugin: Incognito, val settings: IncognitoConfig) {
+class IncognitoService(private val plugin: Incognito, val settings: IncognitoConfig, private val data: PlayerDataService) {
 
-    private val key = NamespacedKey(plugin, "alias")
     private val identities = ConcurrentHashMap<UUID, Identity>()
     private val originalNames = ConcurrentHashMap<UUID, Pair<Component, Component?>>()
+    private val suggestionNames = SuggestionNames()
+    private val nameTasks = ConcurrentHashMap<UUID, ScheduledTask>()
     val coordinateSessions = CoordinateSessions(File(plugin.dataFolder, "coordinate-sessions.yml"))
     private val randomLength = minOf(10, 16 - settings.aliasFormat.replace("{random}", "").length)
     private val aliasPattern = Regex(settings.aliasFormat.split("{random}").joinToString("[a-f0-9]{$randomLength}") { Regex.escape(it) })
@@ -32,9 +34,13 @@ class IncognitoService(private val plugin: Incognito, val settings: IncognitoCon
         NativeReflection.fields(list.javaClass).first { it.name == "playersByName" }.get(list) as MutableMap<String, Any>
     }
 
-    fun identity(id: UUID): Identity? = identities[id]
+    fun identity(id: UUID): Identity? = identities[id] ?: data.get(id)?.takeIf { it.enabled }?.let {
+        Identity(it.id, it.realName, if (settings.names) it.alias else it.realName)
+    }
 
-    fun identities(): List<Identity> = identities.values.toList()
+    fun identities(): List<Identity> = data.enabled().mapNotNull { identity(it.id) }
+
+    fun suggestionIdentities(): List<Identity> = suggestionNames.identities(identities())
 
     fun offset(id: UUID): CoordinateOffset = if (settings.coordinates) coordinateSessions.get(id) else CoordinateOffset.ZERO
 
@@ -43,23 +49,26 @@ class IncognitoService(private val plugin: Incognito, val settings: IncognitoCon
     }
 
     fun load(player: Player) {
-        region(player) { player.persistentDataContainer.get(key, PersistentDataType.STRING)?.let { enable(player, it) } }
+        region(player) {
+            data.get(player.uniqueId)?.takeIf { it.enabled }?.let { enable(player, it.alias) }
+        }
     }
 
     fun enable(player: Player, requested: String? = null, kick: Boolean = true): Identity {
         identities[player.uniqueId]?.let { return it }
-        val alias = requested?.takeIf { it.matches(aliasPattern) && available(it) }
-            ?: generateSequence { settings.aliasFormat.replace("{random}", UUID.randomUUID().toString().replace("-", "").take(randomLength)) }.first(::available)
+        val alias = requested?.takeIf { it.matches(aliasPattern) && available(it, player.uniqueId) }
+            ?: generateSequence { settings.aliasFormat.replace("{random}", UUID.randomUUID().toString().replace("-", "").take(randomLength)) }.first { available(it, player.uniqueId) }
         val reconnect = settings.coordinates && coordinateSessions.enable(player.uniqueId)
         val identity = Identity(player.uniqueId, player.name, if (settings.names) alias else player.name)
         identities[player.uniqueId] = identity
+        data.save(PlayerRecord(player.uniqueId, identity.realName, alias, true))
         region(player) {
-            player.persistentDataContainer.set(key, PersistentDataType.STRING, alias)
             if (settings.names) {
                 originalNames[player.uniqueId] = player.displayName() to player.playerListName()
+                trackNames(player)
                 player.displayName(Component.text(alias))
                 player.playerListName(Component.text(alias))
-                if (settings.hideRealName) rename(player, player.name, alias)
+                rename(player, if (settings.hideRealName) player.name else alias, alias)
             }
             if (settings.names || settings.skin) refresh(player)
             if (settings.names) completions()
@@ -75,7 +84,8 @@ class IncognitoService(private val plugin: Incognito, val settings: IncognitoCon
     fun disable(player: Player, kick: Boolean = true) {
         val reconnect = coordinateSessions.disable(player.uniqueId)
         region(player) {
-            player.persistentDataContainer.remove(key)
+            val record = data.get(player.uniqueId)
+            data.save(PlayerRecord(player.uniqueId, player.name, record?.alias ?: player.name, false))
             restore(player)
             if (reconnect && kick) {
                 player.saveData()
@@ -104,12 +114,16 @@ class IncognitoService(private val plugin: Incognito, val settings: IncognitoCon
     }
 
     fun close() {
+        nameTasks.values.forEach { it.cancel() }
+        nameTasks.clear()
         plugin.server.onlinePlayers.forEach { region(it) { restore(it) } }
     }
 
     private fun restore(player: Player, refresh: Boolean = true) {
+        nameTasks.remove(player.uniqueId)?.cancel()
+        suggestionNames.remove(player.uniqueId)
         val identity = identities.remove(player.uniqueId) ?: return
-        if (settings.names && settings.hideRealName) rename(player, identity.alias, if (refresh) player.name else null)
+        if (settings.names) rename(player, identity.alias, if (refresh) player.name else null)
         originalNames.remove(player.uniqueId)?.let { (display, list) ->
             player.displayName(display)
             player.playerListName(list)
@@ -119,9 +133,22 @@ class IncognitoService(private val plugin: Incognito, val settings: IncognitoCon
         if (refresh) player.updateCommands()
     }
 
-    private fun available(alias: String): Boolean =
+    private fun trackNames(player: Player) {
+        fun update() {
+            val original = originalNames[player.uniqueId]
+            suggestionNames.update(player.uniqueId, original?.first, original?.second, player.displayName(), player.playerListName())
+        }
+        update()
+        nameTasks.remove(player.uniqueId)?.cancel()
+        player.scheduler.runAtFixedRate(plugin, { update() }, {
+            nameTasks.remove(player.uniqueId)
+            suggestionNames.remove(player.uniqueId)
+        }, 1, 20)?.let { nameTasks[player.uniqueId] = it }
+    }
+
+    private fun available(alias: String, id: UUID): Boolean =
         plugin.server.onlinePlayers.none { it.name.equals(alias, true) } &&
-            identities.values.none { it.alias.equals(alias, true) }
+            data.enabled().none { it.id != id && it.alias.equals(alias, true) }
 
     private fun rename(player: Player, from: String, to: String?) {
         val handle = player.javaClass.getMethod("getHandle").invoke(player)

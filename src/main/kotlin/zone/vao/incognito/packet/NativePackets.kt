@@ -20,7 +20,7 @@ import java.util.Optional
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
-internal class NativePackets(private val settings: IncognitoConfig, private val logger: Logger, private val headMasker: (ItemStack) -> Boolean) : AutoCloseable {
+internal class NativePackets(private val settings: IncognitoConfig, private val logger: Logger, private val headMasker: (ItemStack) -> Boolean, private val suggestionIdentities: () -> List<Identity>) : AutoCloseable {
 
     private val text = TextMasker(settings.coordinatePatterns)
     private val components = ComponentMasker(text) { json -> debug("fallback:$json") { "component flattened: $json" } }
@@ -85,14 +85,15 @@ internal class NativePackets(private val settings: IncognitoConfig, private val 
             return if (masked.isEmpty()) null else type.getConstructor(Iterable::class.java).newInstance(masked)
         }
         if (type.name == "net.minecraft.network.protocol.game.ClientboundCustomChatCompletionsPacket" && names.isNotEmpty() && settings.namesTabComplete) {
+            val suggestedNames = suggestionIdentities()
             return NativeReflection.record(packet) { name, value ->
-                if (name == "entries") (value as List<*>).map { text.mask(it as String, names, CoordinateOffset.ZERO) } else value
+                if (name == "entries") (value as List<*>).map { text.mask(it as String, suggestedNames, CoordinateOffset.ZERO) }.distinct() else value
             }
         }
         if (type.name == "net.minecraft.network.protocol.game.ClientboundCommandSuggestionsPacket") {
             val request = requests.remove(field(packet, "id") as Int)
             val command = request?.command.orEmpty()
-            val suggestedNames = if (settings.namesTabComplete) names else emptyList()
+            val suggestedNames = if (settings.names && settings.namesTabComplete) suggestionIdentities() else emptyList()
             val suggestedOffset = if (settings.coordinatesTabComplete) offset else CoordinateOffset.ZERO
             val serverStart = field(packet, "start") as Int
             val serverEnd = serverStart + (field(packet, "length") as Int)
@@ -105,11 +106,11 @@ internal class NativePackets(private val settings: IncognitoConfig, private val 
                 NativeReflection.record(entry) { part, content ->
                     when (part) {
                         "text" -> RevealedNames.resolve(suggestion, reveal)
-                        "tooltip" -> transform(content, names, suggestedOffset, reveal)
+                        "tooltip" -> transform(content, suggestedNames, suggestedOffset, reveal)
                         else -> content
                     }
                 }
-            }
+            }.distinctBy { field(it, "text") }
             if (settings.debug) logger.info("[debug] suggestions $id request=${field(packet, "id")} command='$command' received=${(field(packet, "suggestions") as List<*>).size} sent=${suggestions.size} range=$serverStart..$serverEnd -> $start..$end")
             return NativeReflection.record(packet) { name, value ->
                 when (name) {
@@ -144,7 +145,7 @@ internal class NativePackets(private val settings: IncognitoConfig, private val 
         val type = packet.javaClass
         val names = if (settings.names) identities else emptyList()
         if (type.name == "net.minecraft.network.protocol.game.ServerboundCommandSuggestionPacket") {
-            val request = SuggestionRequest.create(field(packet, "command") as String, emptyList())
+            val request = SuggestionRequest.create(field(packet, "command") as String, if (settings.namesTabComplete) names else emptyList(), false)
             requests[field(packet, "id") as Int] = request
             if (settings.debug) logger.info("[debug] suggestion request $id request=${field(packet, "id")} command='${request.command}' forwarded='${request.forwarded}'")
             if (request.command == request.forwarded) return packet

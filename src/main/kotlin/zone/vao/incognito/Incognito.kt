@@ -10,6 +10,9 @@ import zone.vao.incognito.packet.PacketMasker
 import zone.vao.incognito.hook.IncognitoExpansion
 import zone.vao.incognito.hook.PlaceholderMasker
 import zone.vao.incognito.hook.IncognitoMiniPlaceholders
+import zone.vao.incognito.storage.PlayerDataService
+import zone.vao.incognito.storage.StorageConfig
+import zone.vao.incognito.storage.StorageFactory
 
 class Incognito : JavaPlugin() {
 
@@ -19,12 +22,15 @@ class Incognito : JavaPlugin() {
     private var expansion: IncognitoExpansion? = null
     private var placeholders: PlaceholderMasker? = null
     private var miniPlaceholders: IncognitoMiniPlaceholders? = null
+    private var data: PlayerDataService? = null
 
     override fun onEnable() {
         IncognitoConfig.sync(this)
         reloadConfig()
         val settings = IncognitoConfig.load(config)
-        incognitoService = IncognitoService(this, settings)
+        val storage = PlayerDataService(StorageFactory.create(dataFolder, StorageConfig.load(config)), logger)
+        data = storage
+        incognitoService = IncognitoService(this, settings, storage)
         packets = PacketMasker(this, incognitoService, settings).also { it.register() }
         server.pluginManager.registerEvents(IncognitoListener(incognitoService), this)
         if (server.pluginManager.isPluginEnabled("PlaceholderAPI")) {
@@ -41,10 +47,14 @@ class Incognito : JavaPlugin() {
     }
 
     override fun onDisable() {
-        packets?.close()
-        miniPlaceholders?.unregister()
-        placeholders?.unregister()
-        expansion?.unregister()
-        if (::incognitoService.isInitialized) incognitoService.close()
+        try {
+            packets?.close()
+            miniPlaceholders?.unregister()
+            placeholders?.unregister()
+            expansion?.unregister()
+            if (::incognitoService.isInitialized) incognitoService.close()
+        } finally {
+            data?.close()
+        }
     }
 }

@@ -23,7 +23,7 @@ class PacketMasker(
     private val settings: IncognitoConfig,
 ) : Listener, AutoCloseable {
 
-    private val native = NativePackets(settings, plugin.logger, service::maskHead)
+    private val native = NativePackets(settings, plugin.logger, service::maskHead, service::suggestionIdentities)
     private val channels = ConcurrentHashMap<UUID, Channel>()
     private val sessionOffsets = ConcurrentHashMap<UUID, CoordinateOffset>()
     private val failures = ConcurrentHashMap.newKeySet<String>()
