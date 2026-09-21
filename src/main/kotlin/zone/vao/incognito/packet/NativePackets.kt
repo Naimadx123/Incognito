@@ -79,6 +79,20 @@ internal class NativePackets(private val settings: IncognitoConfig, private val 
         val type = packet.javaClass
         val names = if (settings.names) identities else emptyList()
         if (type.name == "net.minecraft.network.protocol.game.ClientboundPlayerChatPacket" && (names.isNotEmpty() || RevealedNames.active())) return mask(disguise(packet), identities, offset, requests, id, reveal)
+        if (type.simpleName == "ClientboundDisguisedChatPacket") {
+            return NativeReflection.record(packet) { name, value ->
+                transform(value, if (name == "message") emptyList() else names, offset, reveal)
+            }
+        }
+        if (type.simpleName == "ClientboundSystemChatPacket" && field(packet, "overlay") == false) {
+            return NativeReflection.record(packet) { name, value ->
+                if (name == "content" && value != null) {
+                    val adventure = if (value is Component) value else toAdventure.invoke(null, value) as Component
+                    val masked = components.system(adventure, names, offset, reveal)
+                    if (value is Component) masked else toVanilla.invoke(null, masked)
+                } else value
+            }
+        }
         if (type.name == "net.minecraft.network.protocol.game.ClientboundBundlePacket") {
             val packets = type.getMethod("subPackets").invoke(packet) as Iterable<*>
             val masked = packets.mapNotNull { it?.let { mask(it, identities, offset, requests, id, reveal) } }

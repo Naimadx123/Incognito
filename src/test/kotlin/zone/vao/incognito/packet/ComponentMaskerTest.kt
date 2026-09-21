@@ -7,6 +7,7 @@ import net.kyori.adventure.text.event.HoverEvent
 import net.kyori.adventure.text.format.NamedTextColor
 import zone.vao.incognito.coordinate.CoordinateOffset
 import zone.vao.incognito.identity.Identity
+import zone.vao.incognito.command.CommandNames
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -17,6 +18,48 @@ class ComponentMaskerTest {
     private val identity = Identity(UUID.randomUUID(), "ExamplePlayer", "Anon_0123456789")
     private val offset = CoordinateOffset(16, -16)
     private val masker = ComponentMasker(TextMasker(listOf(Regex("X: (?<x>-?\\d+)"))))
+
+    @Test
+    fun `plugin errors display aliases instead of internal lookup identifiers`() {
+        val token = CommandNames.rewrite("/alts ${identity.realName}", listOf(identity)) { true }.substringAfter(' ')
+        val message = Component.text("Error: Player $token was never on this server.", NamedTextColor.RED)
+            .hoverEvent(HoverEvent.showText(Component.text(token)))
+        val expected = Component.text("Error: Player ${identity.alias} was never on this server.", NamedTextColor.RED)
+            .hoverEvent(HoverEvent.showText(Component.text(identity.alias)))
+        assertEquals(expected, masker.system(message, listOf(identity), CoordinateOffset.ZERO, true))
+        assertEquals(expected, masker.system(message, emptyList(), CoordinateOffset.ZERO))
+        val split = Component.text("Error: Player ${token.take(20)}").append(Component.text("${token.drop(20)} was never on this server."))
+        assertEquals(Component.text("Error: Player ${identity.alias} was never on this server."), masker.system(split, emptyList(), CoordinateOffset.ZERO))
+    }
+
+    @Test
+    fun `system player lists mask names and interactive metadata even for reveal viewers`() {
+        val player = Component.text(identity.realName, NamedTextColor.GOLD)
+            .clickEvent(ClickEvent.suggestCommand("/msg ${identity.realName} "))
+            .hoverEvent(HoverEvent.showText(Component.text(identity.realName)))
+        val alias = Component.text(identity.alias, NamedTextColor.GOLD)
+            .clickEvent(ClickEvent.suggestCommand("/msg ${identity.alias} "))
+            .hoverEvent(HoverEvent.showText(Component.text(identity.alias)))
+        val message = Component.text("Online: ").append(player).append(Component.text(", OtherPlayer"))
+        val expected = Component.text("Online: ").append(alias).append(Component.text(", OtherPlayer"))
+        for (reveal in listOf(false, true)) {
+            assertEquals(expected, masker.system(message, listOf(identity), CoordinateOffset.ZERO, reveal))
+        }
+        assertEquals(Component.text("Online: ${identity.alias}"), masker.system(Component.text("Online: Example").append(Component.text("Player")), listOf(identity), CoordinateOffset.ZERO))
+    }
+
+    @Test
+    fun `chat keeps real name mentions and masks only the structured sender`() {
+        val notch = Identity(UUID.randomUUID(), "Notch", "Anon_abcdef1234")
+        val message = Component.text("hey Notch", NamedTextColor.GREEN)
+        assertEquals(message, masker.chat(message, listOf(notch), CoordinateOffset.ZERO))
+        val formatted = Component.translatable("chat.type.text", Component.text("Notch"), message)
+        val expected = Component.translatable("chat.type.text", Component.text(notch.alias), message)
+        assertEquals(expected, masker.chat(formatted, listOf(notch), CoordinateOffset.ZERO))
+        assertEquals(expected, masker.system(formatted, listOf(notch), CoordinateOffset.ZERO))
+        val privateMessage = Component.translatable("commands.message.display.incoming", Component.text("Notch"), message)
+        assertEquals(Component.translatable("commands.message.display.incoming", Component.text(notch.alias), message), masker.chat(privateMessage, listOf(notch), CoordinateOffset.ZERO))
+    }
 
     @Test
     fun `masks names and coordinates split across components`() {

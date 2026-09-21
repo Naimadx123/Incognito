@@ -10,22 +10,40 @@ import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
 import zone.vao.incognito.coordinate.CoordinateOffset
 import zone.vao.incognito.identity.Identity
 import zone.vao.incognito.identity.RevealedNames
+import zone.vao.incognito.command.CommandNames
 
 class ComponentMasker(private val text: TextMasker, private val fallback: (String) -> Unit = {}) {
 
     private val codec = GsonComponentSerializer.gson()
     private val plain = PlainTextComponentSerializer.plainText()
+    private val chatTypes = setOf("chat.type.text", "chat.type.announcement", "chat.type.emote", "commands.message.display.incoming", "commands.message.display.outgoing")
+
+    fun system(component: Component, identities: List<Identity>, offset: CoordinateOffset, reveal: Boolean = false): Component =
+        if (component is TranslatableComponent && component.key() in chatTypes) chat(component, identities, offset, reveal)
+        else mask(component, identities, offset, reveal)
+
+    fun chat(component: Component, identities: List<Identity>, offset: CoordinateOffset, reveal: Boolean = false): Component {
+        if (component is TranslatableComponent) {
+            if (component.key() in chatTypes) {
+                return component.arguments(component.arguments().mapIndexed { index, argument ->
+                    mask(argument.asComponent(), if (index == 1) emptyList() else identities, offset, reveal)
+                }).children(component.children().map { chat(it, identities, offset, reveal) })
+            }
+            if (component.key().startsWith("multiplayer.player.")) return mask(component, identities, offset, reveal)
+        }
+        return mask(component, emptyList(), offset, reveal)
+    }
 
     fun mask(component: Component, identities: List<Identity>, offset: CoordinateOffset, reveal: Boolean = false): Component {
-        if (identities.isEmpty() && offset == CoordinateOffset.ZERO && !RevealedNames.active()) return component
+        if (identities.isEmpty() && offset == CoordinateOffset.ZERO && !RevealedNames.active() && !CommandNames.contains(codec.serialize(component)) && !CommandNames.contains(plain.serialize(component))) return component
         val names = identities
         var masked = visit(component) { text.mask(it, names, offset) }
         if (text.exposes(plain.serialize(masked), names) || text.exposes(codec.serialize(masked), names)) {
             fallback(codec.serialize(component))
             masked = Component.text(text.mask(plain.serialize(component), names, offset))
         }
-        masked = visit(masked) { RevealedNames.resolve(it, reveal) }
-        if (RevealedNames.contains(plain.serialize(masked))) masked = Component.text(RevealedNames.resolve(plain.serialize(masked), reveal))
+        masked = visit(masked) { CommandNames.resolve(RevealedNames.resolve(it, reveal)) }
+        if (RevealedNames.contains(plain.serialize(masked)) || CommandNames.contains(plain.serialize(masked))) masked = Component.text(CommandNames.resolve(RevealedNames.resolve(plain.serialize(masked), reveal)))
         return if (masked == component) component else masked
     }
 

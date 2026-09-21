@@ -2,6 +2,7 @@ package zone.vao.incognito.storage
 
 import org.bukkit.configuration.file.YamlConfiguration
 import java.util.UUID
+import java.sql.DriverManager
 import java.util.logging.Logger
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
@@ -16,10 +17,47 @@ class PlayerStorageTest {
     private val logger = Logger.getLogger("IncognitoStorageTest")
 
     @Test
+    fun `legacy aliases are removed without losing incognito state`() {
+        val folder = createTempDirectory("incognito-migration").toFile()
+        val record = PlayerRecord(UUID.randomUUID(), "ExamplePlayer", true)
+        val url = "jdbc:sqlite:${folder.resolve("data.db").absolutePath}"
+        try {
+            DriverManager.getConnection(url).use { connection ->
+                connection.createStatement().use {
+                    it.executeUpdate("CREATE TABLE incognito_players (uuid VARCHAR(36) PRIMARY KEY, real_name VARCHAR(16) NOT NULL, alias VARCHAR(16) NOT NULL, enabled INT NOT NULL)")
+                }
+                connection.prepareStatement("INSERT INTO incognito_players VALUES (?, ?, ?, ?)").use {
+                    it.setString(1, record.id.toString())
+                    it.setString(2, record.realName)
+                    it.setString(3, "Anon_0123456789")
+                    it.setInt(4, 1)
+                    it.executeUpdate()
+                }
+            }
+            StorageFactory.create(folder, config).use {
+                assertEquals(listOf(record), it.loadAll())
+                it.save(listOf(record.copy(enabled = false)))
+            }
+            StorageFactory.create(folder, config).use {
+                assertEquals(listOf(record.copy(enabled = false)), it.loadAll())
+            }
+            DriverManager.getConnection(url).use { connection ->
+                connection.createStatement().use { statement ->
+                    statement.executeQuery("SELECT * FROM incognito_players").use { rows ->
+                        assertEquals(listOf("uuid", "real_name", "enabled"), (1..rows.metaData.columnCount).map(rows.metaData::getColumnName))
+                    }
+                }
+            }
+        } finally {
+            folder.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `sqlite restores active and disabled records before cache reads`() {
         val folder = createTempDirectory("incognito-storage").toFile()
-        val active = PlayerRecord(UUID.randomUUID(), "ExamplePlayer", "Anon_0123456789", true)
-        val disabled = PlayerRecord(UUID.randomUUID(), "OtherPlayer", "Anon_9876543210", false)
+        val active = PlayerRecord(UUID.randomUUID(), "ExamplePlayer", true)
+        val disabled = PlayerRecord(UUID.randomUUID(), "OtherPlayer", false)
         try {
             PlayerDataService(StorageFactory.create(folder, config), logger).use {
                 it.save(active)
@@ -56,7 +94,7 @@ class PlayerStorageTest {
             }
             override fun close() { closed = true }
         }
-        val record = PlayerRecord(UUID.randomUUID(), "ExamplePlayer", "Anon_0123456789", true)
+        val record = PlayerRecord(UUID.randomUUID(), "ExamplePlayer", true)
         PlayerDataService(storage, logger).use {
             it.save(record)
             assertFailsWith<IllegalStateException> { it.flush() }

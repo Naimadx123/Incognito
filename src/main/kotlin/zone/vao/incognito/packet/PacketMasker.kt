@@ -45,6 +45,7 @@ class PacketMasker(
         val connection = event.connection
         try {
             val id = requireNotNull(connection.profile.id)
+            service.prepareSession(id, requireNotNull(connection.profile.name))
             install(id, channel(connection), service.offset(id))
         } catch (exception: Exception) {
             plugin.logger.severe("Cannot prepare the Incognito connection: ${exception.javaClass.simpleName}")
