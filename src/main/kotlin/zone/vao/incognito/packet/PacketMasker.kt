@@ -46,7 +46,11 @@ class PacketMasker(
         try {
             val id = requireNotNull(connection.profile.id)
             service.prepareSession(id, requireNotNull(connection.profile.name))
-            install(id, channel(connection), service.offset(id))
+            val channel = channel(connection)
+            service.identity(id)?.let { identity ->
+                channel.closeFuture().addListener { service.forgetPreparedSession(id, identity) }
+            }
+            install(id, channel, service.offset(id))
         } catch (exception: Exception) {
             plugin.logger.severe("Cannot prepare the Incognito connection: ${exception.javaClass.simpleName}")
             connection.disconnect(settings.messages.get("unsupported"))
@@ -97,7 +101,7 @@ class PacketMasker(
                         if (settings.debug) plugin.logger.info("[debug] pipeline $id offset=$offset reveal=${plugin.server.getPlayer(id)?.hasPermission("incognito.reveal")}: ${channel.pipeline().names()}")
                         if (channel.pipeline().get(handlerName) == null) {
                             channel.pipeline().addBefore("packet_handler", handlerName, OutboundMaskHandler(
-                                transform = { native.mask(it, service.identities(), offset, requests, id, plugin.server.getPlayer(id)?.hasPermission("incognito.reveal") == true, profiles) },
+                                transform = { native.mask(it, service.packetIdentities(), offset, requests, id, plugin.server.getPlayer(id)?.hasPermission("incognito.reveal") == true, profiles) },
                                 failure = { packet, error ->
                                     if (failures.add(packet.javaClass.name)) {
                                         plugin.logger.log(Level.SEVERE, "Blocked ${packet.javaClass.simpleName}: packet transformation failed.", error)

@@ -17,6 +17,18 @@ class TextMaskerTest {
     ))
 
     @Test
+    fun `cached masks follow session changes and do not retain names after departure`() {
+        val first = listOf(identity)
+        val next = listOf(Identity(identity.id, identity.realName, "Anon_9876543210"))
+        assertEquals(identity.alias, masker.mask(identity.realName, first, CoordinateOffset.ZERO))
+        assertEquals(next.single().alias, masker.mask(identity.realName, next, CoordinateOffset.ZERO))
+        assertEquals(identity.realName, masker.mask(identity.realName, emptyList(), CoordinateOffset.ZERO))
+        assertEquals(identity.alias, masker.mask(identity.realName, first, CoordinateOffset.ZERO))
+        assertEquals("ExamplePlayer", masker.restore(identity.alias, first, CoordinateOffset.ZERO))
+        assertEquals(identity.alias, masker.mask(identity.realName, first, CoordinateOffset.ZERO))
+    }
+
+    @Test
     fun `masks names without changing similar player names`() {
         assertEquals("Anon_0123456789 ExamplePlayerPL xExamplePlayer", masker.mask("eXaMpLePlAyEr ExamplePlayerPL xExamplePlayer", listOf(identity), CoordinateOffset.ZERO))
     }

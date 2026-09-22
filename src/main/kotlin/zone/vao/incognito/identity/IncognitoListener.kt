@@ -20,7 +20,7 @@ class IncognitoListener(private val service: IncognitoService) : Listener {
     fun onPing(event: PaperServerListPingEvent) {
         if (!service.settings.names) return
         event.listedPlayers.replaceAll { listed ->
-            service.identity(listed.id())?.let { PaperServerListPingEvent.ListedPlayerInfo(it.alias, it.id) } ?: listed
+            service.identity(listed.id())?.let { PaperServerListPingEvent.ListedPlayerInfo(it.alias, it.maskedId) } ?: listed
         }
     }
 

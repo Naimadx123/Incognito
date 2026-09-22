@@ -66,8 +66,6 @@ debug: false
 # Player-facing messages in MiniMessage format.
 # <name> is the alias, <player> is the real name of the target in admin messages.
 messages:
-  enabled: '<green>Incognito enabled. Your name: <name>'
-  disabled: '<yellow>Incognito disabled.'
   status-enabled: '<green>Incognito: <name>'
   status-disabled: '<yellow>Incognito is disabled.'
   pending-enabled: '<yellow>Incognito will be enabled after you reconnect. Please log out and join again when it is safe to do so.'
@@ -75,11 +73,7 @@ messages:
   admin-pending-enabled: '<yellow>Incognito will be enabled for <player> after they reconnect.'
   admin-pending-disabled: '<yellow>Incognito will be disabled for <player> after they reconnect.'
   players-only: '<red>This command is only available to players.'
-  reconnect-enabled: '<yellow>Incognito enabled. Reconnect to apply your new identity.'
-  reconnect-disabled: '<yellow>Incognito disabled. Reconnect to restore your identity.'
   reconnect-required: '<yellow>Reconnect to initialize Incognito protection.'
   unsupported: '<red>Incognito protection cannot run on this server version.'
   admin-enabled: '<green>Incognito enabled for <player>. The player must reconnect.'
   admin-disabled: '<yellow>Incognito disabled for <player>.'
-  relog-enabled: '<yellow>Incognito was enabled by an administrator. Coordinates change after you reconnect.'
-  relog-disabled: '<yellow>Incognito was disabled by an administrator. Coordinates return to normal after you reconnect.'

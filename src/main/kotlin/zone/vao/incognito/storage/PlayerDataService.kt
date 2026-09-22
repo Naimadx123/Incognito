@@ -13,13 +13,11 @@ class PlayerDataService(private val storage: PlayerStorage, private val logger: 
     private val dirty = ConcurrentHashMap<UUID, PlayerRecord>()
     private val writes = Any()
     private val io = Executors.newSingleThreadScheduledExecutor { task -> Thread(task, "incognito-storage").apply { isDaemon = true } }
-    @Volatile private var enabled = emptyList<PlayerRecord>()
     @Volatile private var closed = false
 
     init {
         try {
             storage.loadAll().forEach { cache[it.id] = it }
-            enabled = cache.values.filter { it.enabled }
             logger.info("Loaded ${cache.size} incognito records into memory.")
             io.scheduleWithFixedDelay({
                 runCatching { flush() }.onFailure { logger.log(Level.SEVERE, "Cannot save incognito data; pending changes will be retried.", it) }
@@ -33,14 +31,11 @@ class PlayerDataService(private val storage: PlayerStorage, private val logger: 
 
     fun get(id: UUID): PlayerRecord? = cache[id]
 
-    fun enabled(): List<PlayerRecord> = enabled
-
     @Synchronized
     fun save(record: PlayerRecord) {
         check(!closed) { "Incognito storage is closed" }
         cache[record.id] = record
         dirty[record.id] = record
-        enabled = cache.values.filter { it.enabled }
     }
 
     fun flush() = synchronized(writes) {

@@ -63,13 +63,13 @@ class PlayerStorageTest {
                 it.save(active)
                 it.save(disabled)
                 assertEquals(active, it.get(active.id))
-                assertEquals(listOf(active), it.enabled())
+                assertEquals(disabled, it.get(disabled.id))
             }
             PlayerDataService(StorageFactory.create(folder, config), logger).use {
                 assertEquals(active, it.get(active.id))
                 assertEquals(disabled, it.get(disabled.id))
                 it.save(active.copy(enabled = false))
-                assertTrue(it.enabled().isEmpty())
+                assertFalse(it.get(active.id)!!.enabled)
             }
             StorageFactory.create(folder, config).use {
                 val records = it.loadAll()
