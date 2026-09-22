@@ -194,7 +194,9 @@ internal class NativePackets(private val settings: IncognitoConfig, private val 
 
     private fun maskProfiles(packet: Any, identities: List<Identity>, names: List<Identity>, viewer: UUID?, reveal: Boolean, profiles: ProfileIds): Any? {
         val byId = identities.associateBy { it.id }
-        return ProfilePackets.update(packet, names, profiles) { id, maskedId, name, value ->
+        return ProfilePackets.update(packet, names, profiles, displayKey = { value ->
+            if (componentType.isInstance(value)) toAdventure.invoke(null, value) else value
+        }) { id, maskedId, name, value ->
             val identity = byId[id]
             when (name) {
                 "chatSession" -> if (maskedId != id) null else value
