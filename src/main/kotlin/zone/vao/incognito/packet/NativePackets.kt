@@ -15,7 +15,6 @@ import java.lang.reflect.Modifier
 import org.bukkit.inventory.ItemStack
 import org.bukkit.inventory.meta.CompassMeta
 import java.util.logging.Logger
-import java.util.EnumSet
 import java.util.Optional
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -193,27 +192,17 @@ internal class NativePackets(private val settings: IncognitoConfig, private val 
         if (settings.debug && logged.add(key)) logger.info("[debug] ${message()}")
     }
 
-    private fun maskProfiles(packet: Any, identities: List<Identity>, names: List<Identity>, viewer: UUID?, reveal: Boolean, profiles: ProfileIds): Any {
-        val fields = NativeReflection.fields(packet.javaClass)
-        val actions = fields.single { EnumSet::class.java.isAssignableFrom(it.type) }.get(packet)
-        val entries = fields.single { List::class.java.isAssignableFrom(it.type) }.get(packet) as List<*>
+    private fun maskProfiles(packet: Any, identities: List<Identity>, names: List<Identity>, viewer: UUID?, reveal: Boolean, profiles: ProfileIds): Any? {
         val byId = identities.associateBy { it.id }
-        val masked = entries.map { entry ->
-            requireNotNull(entry)
-            val id = entry.javaClass.getMethod("profileId").invoke(entry) as UUID
+        return ProfilePackets.update(packet, names, profiles) { id, maskedId, name, value ->
             val identity = byId[id]
-            val maskedId = profiles.profile(id, names, (actions as EnumSet<*>).any { (it as Enum<*>).name == "ADD_PLAYER" })
-            NativeReflection.record(entry) { name, value ->
-                when (name) {
-                    "profileId" -> maskedId
-                    "chatSession" -> if (maskedId != id) null else value
-                    "profile" -> if (identity == null || !settings.names && !settings.skin) value else createProfile(identity, maskedId, value, settings.skin && identity.id != viewer)
-                    "displayName" -> transform(value, names, CoordinateOffset.ZERO, reveal)
-                    else -> value
-                }
+            when (name) {
+                "chatSession" -> if (maskedId != id) null else value
+                "profile" -> if (identity == null || !settings.names && !settings.skin) value else createProfile(identity, maskedId, value, settings.skin && identity.id != viewer)
+                "displayName" -> transform(value, names, CoordinateOffset.ZERO, reveal)
+                else -> value
             }
         }
-        return packet.javaClass.getConstructor(EnumSet::class.java, List::class.java).newInstance(actions, masked)
     }
 
     private fun createProfile(identity: Identity, id: UUID, original: Any?, hideSkin: Boolean): Any {

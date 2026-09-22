@@ -41,6 +41,16 @@ class IncognitoService(private val plugin: Incognito, val settings: IncognitoCon
 
     fun identity(id: UUID): Identity? = identities[id] ?: sessionIdentities[id]?.takeIf { id in preparedSessions }
 
+    fun pending(id: UUID): Boolean? =
+        (data.get(id)?.enabled == true).takeIf { it != (identity(id) != null) }
+
+    fun status(id: UUID): Component {
+        val pending = pending(id)
+        if (pending != null) return settings.messages.get(if (pending) "pending-enabled" else "pending-disabled")
+        return identity(id)?.let { settings.messages.get("status-enabled", it.alias) }
+            ?: settings.messages.get("status-disabled")
+    }
+
     fun identities(): List<Identity> = sessionIdentities.values.toList()
 
     fun suggestionIdentities(): List<Identity> = suggestionNames.identities(identities())
@@ -51,7 +61,13 @@ class IncognitoService(private val plugin: Incognito, val settings: IncognitoCon
     fun offset(id: UUID): CoordinateOffset = if (settings.coordinates) coordinateSessions.get(id) else CoordinateOffset.ZERO
 
     fun prepareSession(id: UUID, realName: String) {
-        if (data.get(id)?.enabled != true) return
+        if (data.get(id)?.enabled != true) {
+            sessionIdentities.remove(id)
+            preparedSessions.remove(id)
+            coordinateSessions.disable(id)
+            return
+        }
+        if (settings.coordinates) coordinateSessions.enable(id)
         sessionIdentities[id] = createIdentity(id, realName)
         preparedSessions.add(id)
     }
@@ -66,47 +82,33 @@ class IncognitoService(private val plugin: Incognito, val settings: IncognitoCon
 
     fun load(player: Player) {
         region(player) {
-            data.get(player.uniqueId)?.takeIf { it.enabled }?.let { enable(player) }
-        }
-    }
-
-    fun enable(player: Player, kick: Boolean = true): Identity {
-        identities[player.uniqueId]?.let { return it }
-        val identity = if (preparedSessions.remove(player.uniqueId)) sessionIdentities.getValue(player.uniqueId) else createIdentity(player.uniqueId, player.name)
-        val alias = identity.alias
-        val reconnect = settings.coordinates && coordinateSessions.enable(player.uniqueId)
-        identities[player.uniqueId] = identity
-        sessionIdentities[player.uniqueId] = identity
-        data.save(PlayerRecord(player.uniqueId, identity.realName, true))
-        region(player) {
+            if (data.get(player.uniqueId)?.enabled != true || identities.containsKey(player.uniqueId)) return@region
+            if (!preparedSessions.remove(player.uniqueId)) {
+                player.kick(settings.messages.get("reconnect-required"))
+                return@region
+            }
+            val identity = sessionIdentities.getValue(player.uniqueId)
+            identities[player.uniqueId] = identity
             if (settings.names) {
                 originalNames[player.uniqueId] = player.displayName() to player.playerListName()
                 trackNames(player)
-                player.displayName(Component.text(alias))
-                player.playerListName(Component.text(alias))
-                rename(player, if (settings.hideRealName) player.name else alias, alias)
+                player.displayName(Component.text(identity.alias))
+                player.playerListName(Component.text(identity.alias))
+                rename(player, if (settings.hideRealName) player.name else identity.alias, identity.alias)
+                completions()
             }
-            if (settings.names || settings.skin) refresh(player)
-            if (settings.names) completions()
             player.updateCommands()
-            if (reconnect && kick) {
-                player.saveData()
-                player.kick(settings.messages.get("reconnect-enabled"))
-            } else if (reconnect) player.sendMessage(settings.messages.get("relog-enabled"))
         }
-        return identity
     }
 
-    fun disable(player: Player, kick: Boolean = true) {
-        val reconnect = coordinateSessions.disable(player.uniqueId)
+    fun change(player: Player, enabled: Boolean?, complete: (Boolean) -> Unit = {}) {
         region(player) {
-            data.save(PlayerRecord(player.uniqueId, player.name, false))
-            sessionIdentities.remove(player.uniqueId)
-            restore(player)
-            if (reconnect && kick) {
-                player.saveData()
-                player.kick(settings.messages.get("reconnect-disabled"))
-            } else if (reconnect) player.sendMessage(settings.messages.get("relog-disabled"))
+            if (!player.isOnline) return@region
+            val current = data.get(player.uniqueId)?.enabled == true
+            val next = enabled ?: !current
+            if (current != next) data.save(PlayerRecord(player.uniqueId, player.name, next))
+            player.sendMessage(status(player.uniqueId))
+            complete(next)
         }
     }
 
@@ -147,8 +149,10 @@ class IncognitoService(private val plugin: Incognito, val settings: IncognitoCon
         val identity = identities.remove(player.uniqueId) ?: return
         if (settings.names) rename(player, identity.alias, if (refresh) player.name else null)
         originalNames.remove(player.uniqueId)?.let { (display, list) ->
-            player.displayName(display)
-            player.playerListName(list)
+            if (refresh) {
+                player.displayName(display)
+                player.playerListName(list)
+            }
         }
         if (refresh && (settings.names || settings.skin)) refresh(player)
         if (refresh && settings.names) completions()

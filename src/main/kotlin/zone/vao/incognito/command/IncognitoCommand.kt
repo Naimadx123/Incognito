@@ -20,8 +20,7 @@ object IncognitoCommand {
             .then(Commands.literal("off").executes { self(service, it, false) })
             .then(Commands.literal("status").executes {
                 val sender = it.source.sender
-                val identity = (sender as? Player)?.let { player -> service.identity(player.uniqueId) }
-                sender.sendMessage(identity?.let { service.settings.messages.get("status-enabled", it.alias) } ?: service.settings.messages.get("status-disabled"))
+                sender.sendMessage((sender as? Player)?.let { service.status(it.uniqueId) } ?: service.settings.messages.get("status-disabled"))
                 Command.SINGLE_SUCCESS
             })
             .then(Commands.literal("player")
@@ -37,27 +36,21 @@ object IncognitoCommand {
             context.source.sender.sendMessage(service.settings.messages.get("players-only"))
             return Command.SINGLE_SUCCESS
         }
-        change(service, player, enabled, true)
+        service.change(player, enabled)
         return Command.SINGLE_SUCCESS
     }
 
     private fun other(service: IncognitoService, context: CommandContext<CommandSourceStack>, enabled: Boolean?): Int {
         val target = context.getArgument("target", PlayerSelectorArgumentResolver::class.java).resolve(context.source).first()
         val messages = service.settings.messages
-        val alias = change(service, target, enabled, false)
-        context.source.sender.sendMessage(alias?.let { messages.get("admin-enabled", it, target.name) } ?: messages.get("admin-disabled", "", target.name))
-        return Command.SINGLE_SUCCESS
-    }
-
-    private fun change(service: IncognitoService, player: Player, enabled: Boolean?, kick: Boolean): String? {
-        val messages = service.settings.messages
-        if (enabled ?: (service.identity(player.uniqueId) == null)) {
-            val identity = service.enable(player, kick = kick)
-            player.sendMessage(messages.get("enabled", identity.alias))
-            return identity.alias
+        service.change(target, enabled) { active ->
+            val key = if (service.pending(target.uniqueId) != null) {
+                if (active) "admin-pending-enabled" else "admin-pending-disabled"
+            } else if (active) "admin-enabled" else "admin-disabled"
+            val message = messages.get(key, player = target.name)
+            val sender = context.source.sender
+            if (sender is Player) service.region(sender) { sender.sendMessage(message) } else sender.sendMessage(message)
         }
-        service.disable(player, kick)
-        player.sendMessage(messages.get("disabled"))
-        return null
+        return Command.SINGLE_SUCCESS
     }
 }

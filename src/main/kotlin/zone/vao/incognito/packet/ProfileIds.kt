@@ -10,8 +10,13 @@ internal class ProfileIds(private val viewer: UUID?) {
     fun outbound(id: UUID, identities: List<Identity>): UUID =
         if (id == viewer) id else identities.firstOrNull { it.id == id }?.maskedId ?: id
 
-    fun profile(id: UUID, identities: List<Identity>, adding: Boolean = true): UUID =
-        if (adding) outbound(id, identities).also { sent[id] = it } else sent[id] ?: outbound(id, identities)
+    fun profile(id: UUID, identities: List<Identity>, adding: Boolean = true): UUID? {
+        val target = outbound(id, identities)
+        val previous = sent[id]
+        if (previous != null && previous != target || !adding && previous == null) return null
+        if (adding) sent[id] = target
+        return target
+    }
 
     fun remove(id: UUID, identities: List<Identity>): UUID = sent.remove(id) ?: outbound(id, identities)
 
