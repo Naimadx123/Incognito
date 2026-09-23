@@ -32,6 +32,7 @@ configurations.testImplementation {
 }
 
 dependencies {
+    implementation("org.bstats:bstats-bukkit:3.2.1")
     compileOnly("io.papermc.paper:paper-api:${providers.gradleProperty("paperApiVersion").getOrElse("1.21.8-R0.1-SNAPSHOT")}")
     compileOnly("io.netty:netty-transport:4.2.18.Final")
     compileOnly("me.clip:placeholderapi:2.12.3")
@@ -74,6 +75,7 @@ tasks {
     }
 
     shadowJar {
+        relocate("org.bstats", "zone.vao.incognito.lib.bstats")
         mergeServiceFiles()
         filesMatching("META-INF/services/**") {
             duplicatesStrategy = DuplicatesStrategy.INCLUDE

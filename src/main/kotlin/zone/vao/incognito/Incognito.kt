@@ -1,6 +1,7 @@
 package zone.vao.incognito
 
 import org.bukkit.plugin.java.JavaPlugin
+import org.bstats.bukkit.Metrics
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents
 import zone.vao.incognito.command.IncognitoCommand
 import zone.vao.incognito.config.IncognitoConfig
@@ -44,6 +45,7 @@ class Incognito : JavaPlugin() {
             it.registrar().register(IncognitoCommand.build(incognitoService), "Hides player identity", listOf("incog"))
         }
         server.onlinePlayers.forEach(incognitoService::load)
+        Metrics(this, 34221)
     }
 
     override fun onDisable() {
