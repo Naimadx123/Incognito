@@ -15,6 +15,7 @@ permissions:
   incognito.use:
     default: op
   incognito.admin:
+    description: Manage other players and receive incognito state and alias notifications.
     default: op
   incognito.reveal:
     default: op

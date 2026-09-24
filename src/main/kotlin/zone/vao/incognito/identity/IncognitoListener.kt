@@ -17,6 +17,11 @@ class IncognitoListener(private val service: IncognitoService) : Listener {
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
+    fun onJoinMessage(event: PlayerJoinEvent) {
+        event.joinMessage(service.joinQuitMessage(event.player, event.joinMessage(), true))
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
     fun onPing(event: PaperServerListPingEvent) {
         if (!service.settings.names) return
         event.listedPlayers.replaceAll { listed ->
@@ -26,6 +31,7 @@ class IncognitoListener(private val service: IncognitoService) : Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST)
     fun onQuit(event: PlayerQuitEvent) {
+        event.quitMessage(service.joinQuitMessage(event.player, event.quitMessage(), false))
         service.forget(event.player)
     }
 

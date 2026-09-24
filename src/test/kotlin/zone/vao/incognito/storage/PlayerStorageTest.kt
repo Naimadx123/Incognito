@@ -44,7 +44,7 @@ class PlayerStorageTest {
             DriverManager.getConnection(url).use { connection ->
                 connection.createStatement().use { statement ->
                     statement.executeQuery("SELECT * FROM incognito_players").use { rows ->
-                        assertEquals(listOf("uuid", "real_name", "enabled"), (1..rows.metaData.columnCount).map(rows.metaData::getColumnName))
+                        assertEquals(listOf("uuid", "real_name", "enabled", "show_join_quit", "last_alias"), (1..rows.metaData.columnCount).map(rows.metaData::getColumnName))
                     }
                 }
             }
@@ -56,8 +56,8 @@ class PlayerStorageTest {
     @Test
     fun `sqlite restores active and disabled records before cache reads`() {
         val folder = createTempDirectory("incognito-storage").toFile()
-        val active = PlayerRecord(UUID.randomUUID(), "ExamplePlayer", true)
-        val disabled = PlayerRecord(UUID.randomUUID(), "OtherPlayer", false)
+        val active = PlayerRecord(UUID.randomUUID(), "ExamplePlayer", true, false, "Anon_0123456789")
+        val disabled = PlayerRecord(UUID.randomUUID(), "OtherPlayer", false, true)
         try {
             PlayerDataService(StorageFactory.create(folder, config), logger).use {
                 it.save(active)

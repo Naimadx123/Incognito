@@ -25,6 +25,14 @@ names:
   # Changing the format gives players a new alias on their next login.
   format: 'Anon_{random}'
 
+join-quit:
+  # player: use the player's saved choice; show/hide: force it and block switching.
+  mode: player
+  # Used until the player saves a preference with /incognito messages.
+  default-show: true
+  # In player mode, false locks saved choices (or the default for new players).
+  allow-toggle: true
+
 coordinates:
   # Shift the whole world view (chunks, entities, F3, minimaps) by a random, fixed X/Z offset per player.
   # Enabling or disabling incognito with this on requires the player to reconnect.
@@ -63,8 +71,8 @@ books: true
 # Log packet translations and pipeline details. Only for troubleshooting.
 debug: false
 
-# Player-facing messages in MiniMessage format.
-# <name> is the alias, <player> is the real name of the target in admin messages.
+# Messages in MiniMessage format. <name> is the alias, <player> is the real name.
+# notify-* messages go only to online players with incognito.admin; an empty value disables one.
 messages:
   status-enabled: '<green>Incognito: <name>'
   status-disabled: '<yellow>Incognito is disabled.'
@@ -77,3 +85,15 @@ messages:
   unsupported: '<red>Incognito protection cannot run on this server version.'
   admin-enabled: '<green>Incognito enabled for <player>. The player must reconnect.'
   admin-disabled: '<yellow>Incognito disabled for <player>.'
+  join-quit-shown: '<green>Incognito join/quit messages: shown.'
+  join-quit-hidden: '<yellow>Incognito join/quit messages: hidden.'
+  join-quit-locked: '<red>An administrator has locked this setting.'
+  # Fallbacks in join-quit.mode: show if another listener removed the event message.
+  join-message: '<yellow><name> joined the game.'
+  quit-message: '<yellow><name> left the game.'
+  notify-enabled: '<gold>Incognito >> <yellow>Player <player> enabled incognito, new nickname: <name>'
+  notify-disabled: '<gold>Incognito >> <yellow>Player <name> disabled incognito, new nickname: <player>'
+  notify-alias-changed: '<gold>Incognito >> <yellow>Player <player> rejoined in incognito, new nickname: <name>'
+  notify-pending-enabled: '<gold>Incognito >> <yellow>Player <player> will enable incognito after reconnecting; a nickname will be assigned at login.'
+  notify-pending-disabled: '<gold>Incognito >> <yellow>Player <name> (<player>) will disable incognito after reconnecting.'
+  notify-cancelled: '<gold>Incognito >> <yellow>Player <player> canceled the pending incognito change.'

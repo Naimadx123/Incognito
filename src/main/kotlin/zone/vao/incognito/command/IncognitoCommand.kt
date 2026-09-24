@@ -18,6 +18,16 @@ object IncognitoCommand {
             .executes { self(service, it, null) }
             .then(Commands.literal("on").executes { self(service, it, true) })
             .then(Commands.literal("off").executes { self(service, it, false) })
+            .then(Commands.literal("messages")
+                .executes { messages(service, it, null) }
+                .then(Commands.literal("on").executes { messages(service, it, true) })
+                .then(Commands.literal("off").executes { messages(service, it, false) })
+                .then(Commands.literal("status").executes {
+                    val sender = it.source.sender
+                    sender.sendMessage((sender as? Player)?.let { service.joinQuitStatus(it.uniqueId) }
+                        ?: service.settings.messages.get("players-only"))
+                    Command.SINGLE_SUCCESS
+                }))
             .then(Commands.literal("status").executes {
                 val sender = it.source.sender
                 sender.sendMessage((sender as? Player)?.let { service.status(it.uniqueId) } ?: service.settings.messages.get("status-disabled"))
@@ -37,6 +47,15 @@ object IncognitoCommand {
             return Command.SINGLE_SUCCESS
         }
         service.change(player, enabled)
+        return Command.SINGLE_SUCCESS
+    }
+
+    private fun messages(service: IncognitoService, context: CommandContext<CommandSourceStack>, shown: Boolean?): Int {
+        val player = context.source.sender as? Player ?: run {
+            context.source.sender.sendMessage(service.settings.messages.get("players-only"))
+            return Command.SINGLE_SUCCESS
+        }
+        service.changeJoinQuit(player, shown)
         return Command.SINGLE_SUCCESS
     }
 

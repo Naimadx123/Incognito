@@ -21,6 +21,7 @@ data class IncognitoConfig(
     val signature: String,
     val debug: Boolean,
     val messages: Messages,
+    val joinQuit: JoinQuitConfig,
 ) {
     companion object {
         fun sync(plugin: JavaPlugin) {
@@ -68,6 +69,7 @@ data class IncognitoConfig(
                 signature,
                 config.getBoolean("debug", false),
                 Messages(config),
+                JoinQuitConfig.load(config),
             )
         }
     }

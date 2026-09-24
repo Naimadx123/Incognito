@@ -19,7 +19,13 @@ import java.util.Optional
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
-internal class NativePackets(private val settings: IncognitoConfig, private val logger: Logger, private val headMasker: (ItemStack) -> Boolean, private val suggestionIdentities: () -> List<Identity>) : AutoCloseable {
+internal class NativePackets(
+    private val settings: IncognitoConfig,
+    private val logger: Logger,
+    private val headMasker: (ItemStack) -> Boolean,
+    private val suggestionIdentities: () -> List<Identity>,
+    private val adminMessage: (Component, UUID?) -> Component? = { _, _ -> null },
+) : AutoCloseable {
 
     private val text = TextMasker(settings.coordinatePatterns)
     private val components = ComponentMasker(text) { json -> debug("fallback:$json") { "component flattened: $json" } }
@@ -87,7 +93,7 @@ internal class NativePackets(private val settings: IncognitoConfig, private val 
             return NativeReflection.record(packet) { name, value ->
                 if (name == "content" && value != null) {
                     val adventure = if (value is Component) value else toAdventure.invoke(null, value) as Component
-                    val masked = components.system(adventure, names, offset, reveal)
+                    val masked = adminMessage(adventure, id) ?: components.system(adventure, names, offset, reveal)
                     if (value is Component) masked else toVanilla.invoke(null, masked)
                 } else value
             }

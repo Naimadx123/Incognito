@@ -8,6 +8,7 @@ import org.bukkit.inventory.meta.SkullMeta
 import org.bukkit.entity.Player
 import zone.vao.incognito.Incognito
 import zone.vao.incognito.config.IncognitoConfig
+import zone.vao.incognito.config.JoinQuitConfig
 import zone.vao.incognito.command.CommandNames
 import zone.vao.incognito.packet.NativeReflection
 import zone.vao.incognito.packet.ComponentMasker
@@ -30,6 +31,7 @@ class IncognitoService(private val plugin: Incognito, val settings: IncognitoCon
     private val headText = ComponentMasker(TextMasker(emptyList()))
     private val suggestionNames = SuggestionNames()
     private val nameTasks = ConcurrentHashMap<UUID, ScheduledTask>()
+    private val adminMessages = AdminMessages()
     val coordinateSessions = CoordinateSessions(File(plugin.dataFolder, "coordinate-sessions.yml"))
     private val playersByName: MutableMap<String, Any> by lazy {
         val server = plugin.server.javaClass.getMethod("getServer").invoke(plugin.server)
@@ -88,7 +90,15 @@ class IncognitoService(private val plugin: Incognito, val settings: IncognitoCon
 
     fun load(player: Player) {
         region(player) {
-            if (data.get(player.uniqueId)?.enabled != true || identities.containsKey(player.uniqueId)) return@region
+            val record = data.get(player.uniqueId) ?: return@region
+            if (!record.enabled) {
+                record.lastAlias?.let { alias ->
+                    data.save(record.copy(realName = player.name, lastAlias = null))
+                    notifyAdmins("notify-disabled", alias, player.name)
+                }
+                return@region
+            }
+            if (identities.containsKey(player.uniqueId)) return@region
             val identity = preparedSessions.remove(player.uniqueId) ?: run {
                 player.kick(settings.messages.get("reconnect-required"))
                 return@region
@@ -99,19 +109,70 @@ class IncognitoService(private val plugin: Incognito, val settings: IncognitoCon
                 rename(player, if (settings.hideRealName) player.name else identity.alias, identity.alias)
             }
             player.updateCommands()
+            data.save(record.copy(realName = player.name, lastAlias = identity.alias))
+            notifyAdmins(if (record.lastAlias == null) "notify-enabled" else "notify-alias-changed", identity.alias, identity.realName)
         }
     }
 
     fun change(player: Player, enabled: Boolean?, complete: (Boolean) -> Unit = {}) {
         region(player) {
             if (!player.isOnline) return@region
-            val current = data.get(player.uniqueId)?.enabled == true
+            val record = data.get(player.uniqueId) ?: PlayerRecord(player.uniqueId, player.name, false)
+            val current = record.enabled
             val next = enabled ?: !current
-            if (current != next) data.save(PlayerRecord(player.uniqueId, player.name, next))
+            if (current != next) {
+                data.save(record.copy(realName = player.name, enabled = next))
+                val key = if (pending(player.uniqueId) == null) "notify-cancelled"
+                    else if (next) "notify-pending-enabled" else "notify-pending-disabled"
+                notifyAdmins(key, identity(player.uniqueId)?.alias.orEmpty(), player.name)
+            }
             player.sendMessage(status(player.uniqueId))
             complete(next)
         }
     }
+
+    fun joinQuitStatus(id: UUID): Component {
+        val shown = settings.joinQuit.shows(data.get(id)?.showJoinQuit)
+        val status = settings.messages.get(if (shown) "join-quit-shown" else "join-quit-hidden")
+        return if (settings.joinQuit.canToggle) status
+        else status.append(Component.space()).append(settings.messages.get("join-quit-locked"))
+    }
+
+    fun changeJoinQuit(player: Player, shown: Boolean?) {
+        region(player) {
+            if (!player.isOnline) return@region
+            if (!settings.joinQuit.canToggle) {
+                player.sendMessage(joinQuitStatus(player.uniqueId))
+                return@region
+            }
+            val record = data.get(player.uniqueId) ?: PlayerRecord(player.uniqueId, player.name, false)
+            data.save(record.copy(realName = player.name, showJoinQuit = shown ?: !settings.joinQuit.shows(record.showJoinQuit)))
+            player.sendMessage(joinQuitStatus(player.uniqueId))
+        }
+    }
+
+    fun joinQuitMessage(player: Player, original: Component?, joining: Boolean): Component? {
+        val identity = identity(player.uniqueId) ?: return original
+        if (!settings.joinQuit.shows(data.get(player.uniqueId)?.showJoinQuit)) return null
+        return original ?: if (settings.joinQuit.mode == JoinQuitConfig.Mode.SHOW) {
+            settings.messages.get(if (joining) "join-message" else "quit-message", identity.alias, identity.realName)
+        } else null
+    }
+
+    private fun notifyAdmins(key: String, alias: String, realName: String) {
+        val message = settings.messages.get(key, alias, realName)
+        if (message == Component.empty()) return
+        plugin.server.onlinePlayers.forEach { recipient ->
+            region(recipient) {
+                if (recipient.isOnline && recipient.hasPermission("incognito.admin")) {
+                    recipient.sendMessage(adminMessages.prepare(recipient.uniqueId, message))
+                }
+            }
+        }
+    }
+
+    internal fun resolveAdminMessage(component: Component, recipient: UUID?): Component? =
+        adminMessages.resolve(component, recipient, recipient?.let { plugin.server.getPlayer(it)?.hasPermission("incognito.admin") } == true)
 
     fun maskHead(item: ItemStack): Boolean {
         if (item.type != Material.PLAYER_HEAD) return false

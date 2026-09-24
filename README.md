@@ -1,21 +1,135 @@
 # Incognito
 
-A plugin for Paper and Folia 1.21.8 and later (also checked against 26.x). `/incognito` hides a player's identity with a random `Anon_…` alias, a hidden or shared skin, and shifted coordinates. It operates at the packet level, covering F3, the player list, nametags, chat, scoreboards, boss bars, holograms, tab completion, and text from other plugins without requiring integration on their side.
+Incognito is a Minecraft plugin for Paper and Folia that lets players hide their identity behind a random alias. It masks names and skins in data sent to clients and shifts visible world coordinates. Administrators can manage players' incognito settings and receive notifications about identity changes.
 
 ## Features
 
-- **Alias and skin** — player heads (inventories, drops, equipment, placed skulls) are masked in packets with the alias and the masked skin (`heads`), the items themselves stay untouched; the alias follows `names.format` (`Anon_{random}` by default, `{random}` is hex, 16 characters max); replacements in the profile, TAB, nametag, and all text sent to clients; players still see their own skin. Message colors and formatting are preserved. With `names.hide_realname` (default on) the real-name entry is removed from the server online-player name map and the alias is registered instead. Plugin-specific lookups may bypass this map; offline records retain the real name.
-- **Coordinates** — a random, fixed X/Z offset for the player's entire world view (chunks, entities, sounds, world border, F3, minimaps). Coordinates in text and command suggestions receive the same offset, while coordinates entered in commands are translated back.
-- **PlaceholderAPI** — placeholder results pass through the same filter (`%player_x%`, `%player_name%`, etc.), with additional built-in placeholders: `%incognito_enabled%`, `%incognito_name%`, `%incognito_realname%`, `%incognito_x/y/z/world%`. The same set is available as MiniPlaceholders audience tags (`<incognito_realname>` etc.) when MiniPlaceholders is installed.
-- **Administration** — `/incognito player <player> [on|off]` requires `incognito.admin`. `incognito.reveal` reveals real names only through `%incognito_realname%`. This permission defaults to OP. All other name masking, skin masking and coordinate offsets remain active.
+- A random alias on each incognito login, used in the profile, player list and nametag.
+- Name masking in chat, scoreboards, boss bars, holograms and supported text sent by other plugins.
+- Hidden skins or a shared replacement skin for other viewers. Players still see their own skin.
+- Player head masking in inventories, equipment, dropped items and placed blocks. Original item profiles remain stored on the server.
+- Books signed with the player's alias while incognito is active.
+- X/Z offsets in the world view, F3, minimaps and supported text. Coordinates entered in supported commands are translated back to server coordinates.
+- Player preferences or server rules for showing join and quit messages.
+- Administrative notifications containing real names and aliases.
+- Optional PlaceholderAPI and MiniPlaceholders integrations, with SQLite, MySQL or PostgreSQL storage.
 
-## Installation
+## Requirements and installation
 
-Copy `build/libs/Incognito-v1.0.jar` into `plugins` and restart the server. Configuration is stored in `plugins/Incognito/config.yml`: features (`names`, `skin`, `coordinates`, `placeholders`, tab completion) can be disabled individually, player messages are configured in the `messages` section using MiniMessage, and `debug: true` logs packet transformations. Enabling or disabling coordinate offsets requires reconnecting.
+The project builds against Paper API `1.21.8` by default and targets Java 21. Folia support is declared in the plugin metadata. Packet filtering uses internal server classes, so compatibility with other Minecraft versions should be verified before deployment.
+
+1. Build the project or obtain a packaged `Incognito-v<version>.jar`.
+2. Place the JAR in the server's `plugins` directory and restart the server.
+3. Edit `plugins/Incognito/config.yml` and grant players `incognito.use`.
+4. Restart the server after configuration changes. Missing configuration keys are added at startup.
+
+PlaceholderAPI and MiniPlaceholders are optional. Database libraries are loaded through the server's library mechanism. The plugin also uses bStats metrics, controlled by the server's bStats settings.
+
+## Using incognito
+
+`/incognito` saves the requested state. Enabling and disabling protection takes effect after the player disconnects and rejoins, including when coordinate masking is disabled. The player receives a pending-change message; the plugin does not automatically disconnect them to apply it.
+
+`/incognito status` shows the active alias, disabled state or pending change. Toggling again before disconnecting cancels a pending change. Aliases are generated during login.
+
+## Commands and permissions
+
+Command alias: `/incog`.
+
+| Command | Action |
+| --- | --- |
+| `/incognito` | Toggles the requested incognito state. |
+| `/incognito on` / `/incognito off` | Requests enabling or disabling incognito. |
+| `/incognito status` | Shows the current protection state. |
+| `/incognito messages` | Toggles visibility of the player's own join and quit messages while incognito is active. |
+| `/incognito messages on` / `/incognito messages off` | Sets those messages to shown or hidden. |
+| `/incognito messages status` | Shows the effective setting and whether changes are locked. |
+| `/incognito player <player> [on\|off]` | Changes an online player's state; toggles it when `on`/`off` is omitted. |
+
+| Permission | Default | Purpose |
+| --- | --- | --- |
+| `incognito.use` | OP | Access to the command and personal incognito settings. |
+| `incognito.admin` | OP | Manage other players and receive incognito state and alias notifications. The administrative command also requires `incognito.use`. |
+| `incognito.reveal` | OP | View real names through the `incognito_realname` placeholder. Ordinary name masking remains active. |
+
+Personal settings require a player sender. The console can use the `player` subcommand. With `names.hide_realname: true`, target incognito players by their aliases.
+
+## Join and quit messages
+
+```yaml
+join-quit:
+  mode: player
+  default-show: true
+  allow-toggle: true
+```
+
+| Setting | Behavior |
+| --- | --- |
+| `mode: player` | Uses each player's saved preference, or `default-show` until they choose one. |
+| `mode: show` | Forces messages to be shown and blocks player changes. |
+| `mode: hide` | Forces messages to be hidden and blocks player changes. |
+| `default-show` | Initial setting in `player` mode: `true` shows messages, `false` hides them. |
+| `allow-toggle: false` | Locks changes in `player` mode while preserving saved preferences and the default for players without a preference. |
+
+A preference controls both join and quit announcements about that player, as seen by everyone in chat. It is saved in the database and can be set before enabling incognito. It applies to subsequent join and quit events while protection is active. Messages for players without incognito remain under the server's control.
+
+When showing messages, the plugin preserves the event message and masks the player's name. In `show` mode, if the message was previously cleared, it supplies `messages.join-message` or `messages.quit-message`. In `player` mode, suppression by another plugin is preserved. These rules control standard join and quit events; separate broadcasts sent directly by other plugins are outside their scope. Another listener modifying the event later can change the result.
+
+## Administrative notifications
+
+Online players with `incognito.admin` receive notifications when a pending change is saved and when it takes effect at login. They do not need `incognito.reveal`. Real names in these notifications are shown only to authorized recipients.
+
+Example messages after a change takes effect:
+
+```text
+Incognito >> Player jakub enabled incognito, new nickname: incognito123
+Incognito >> Player incognito123 disabled incognito, new nickname: jakub
+```
+
+Before reconnection, the notification describes the pending change. Rejoining with incognito still active sends a new-alias notification. Canceling a pending change has a separate notification; requesting an already saved state does not send another notification.
+
+Templates are in the `messages` section under `notify-enabled`, `notify-disabled`, `notify-alias-changed`, `notify-pending-enabled`, `notify-pending-disabled` and `notify-cancelled`. Set an individual template to `''` to disable that notification. `<player>` is the real name and `<name>` is the alias. All templates in `messages` support MiniMessage.
+
+## Protection settings
+
+See [config.yml](src/main/resources/config.yml) for the full configuration, defaults and comments.
+
+| Key | Purpose |
+| --- | --- |
+| `names.enabled` | Enables name masking. |
+| `names.format` | Alias pattern, default `Anon_{random}`. Requires `{random}`; other characters must be ASCII letters, digits or `_`. Aliases are limited to 16 characters. |
+| `names.tabcomplete` | Uses aliases in command suggestions and chat name completion. Disabling it leaves real names in suggestions. |
+| `names.hide_realname` | Replaces the real name with the alias in the server's online-player name map. Offline lookups retain the real name; custom lookup mechanisms in other plugins may bypass this map. |
+| `skin.enabled` | Masks skins for other viewers. |
+| `skin.value`, `skin.signature` | Optional shared skin as signed Minecraft profile texture properties. Set both together; these are not a username or image URL. |
+| `heads` | Masks player heads in packets. |
+| `books` | Uses the alias as the author when signing a book while name masking is active. |
+| `coordinates.enabled` | Shifts the visible world along X/Z. Y is unchanged. |
+| `coordinates.tabcomplete` | Translates coordinates in command suggestions. |
+| `coordinates.patterns` | Regular expressions for coordinates in text, using named `x` and `z` capture groups. |
+| `placeholders.enabled` | Filters results from PlaceholderAPI expansions. |
+| `debug` | Logs detailed packet transformations for troubleshooting. |
+
+Masking applies to supported data sent to clients. It does not remove real names from databases, logs or data retained by other plugins. Incognito is not vanish: the player remains visible in the world.
+
+## Placeholders
+
+The following placeholders are available when the corresponding integration is installed:
+
+| PlaceholderAPI | MiniPlaceholders | Result |
+| --- | --- | --- |
+| `%incognito_enabled%` | `<incognito_enabled>` | `true` or `false` for the active session. |
+| `%incognito_name%` | `<incognito_name>` | Active alias or ordinary player name. |
+| `%incognito_realname%` | `<incognito_realname>` | Real name of an online incognito player, revealed to recipients with `incognito.reveal`; otherwise empty. |
+| `%incognito_x%` | `<incognito_x>` | Visible block X coordinate. |
+| `%incognito_y%` | `<incognito_y>` | Block Y coordinate. |
+| `%incognito_z%` | `<incognito_z>` | Visible block Z coordinate. |
+| `%incognito_world%` | `<incognito_world>` | World name. |
+
+MiniPlaceholders tags require a player audience. Incognito's own placeholders are registered independently of `placeholders.enabled`; that option controls wrapping results from other PlaceholderAPI expansions.
 
 ## Storage
 
-SQLite is the default backend, stored in `plugins/Incognito/data.db`.
+The default backend is SQLite at `plugins/Incognito/data.db`. Records contain the UUID, real name, requested incognito state, message preference and last alias needed for the disable notification. The stored alias is used for notifications; a new alias is generated at login. Coordinate offsets are stored separately in `coordinate-sessions.yml`.
 
 For MySQL, create a database and configure:
 
@@ -31,19 +145,26 @@ storage:
   pool-size: 4
 ```
 
-## Commands and permissions
-
-| Command | Permission | Action |
-| --- | --- | --- |
-| `/incognito`, `/incognito on\|off` | `incognito.use` (OP) | Toggles incognito mode |
-| `/incognito status` | `incognito.use` | Shows status and alias |
-| `/incognito player <player> [on\|off]` | `incognito.admin` (OP) | Changes another player's incognito mode |
+For PostgreSQL, use `type: postgresql` (or `postgres`) and the appropriate port, usually `5432`. The database account must be able to create and alter tables. Switching backends does not automatically transfer records between databases. Writes are asynchronous, and pending changes are flushed during a normal plugin shutdown.
 
 ## Building
 
+The project requires JDK 25 for compilation. Gradle Wrapper downloads the version specified in the repository; the default JVM target is 21.
+
+Windows:
+
 ```powershell
 .\gradlew.bat build
-.\gradlew.bat build '-PpaperApiVersion=26.3.build.+' -PtargetJava=25
 ```
 
-Kotlin 2.4, Gradle 9.7, JDK 21+ (Java 25 for the 26.x API).
+Linux / macOS:
+
+```sh
+./gradlew build
+```
+
+`build` runs tests and creates `build/libs/Incognito-v<version>.jar`. Run `test` for the test suite alone. Override the API version and JVM target with `-PpaperApiVersion=<version>` and `-PtargetJava=<level>`. The `runServer` task starts a development server; its default Minecraft version is `1.21.8`, configurable with `-PminecraftVersion=<version>`.
+
+## License
+
+Copyright © 2026 Naimadx123. This project uses the [Non-Commercial Source Available License v1.0](LICENSE). The license permits non-commercial use and modification; commercial use requires prior written permission from the copyright holder. See `LICENSE` for the full terms.
