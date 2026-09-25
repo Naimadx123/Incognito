@@ -71,9 +71,11 @@ class IncognitoService(private val plugin: Incognito, val settings: IncognitoCon
             return
         }
         if (settings.coordinates) coordinateSessions.enable(id)
-        val identity = createIdentity(id, realName)
-        sessionIdentities.put(identity)
-        preparedSessions[id] = identity
+        synchronized(aliases) {
+            val identity = createIdentity(id, realName)
+            sessionIdentities.put(identity)
+            preparedSessions[id] = identity
+        }
     }
 
     fun forgetPreparedSession(id: UUID, identity: Identity) {
@@ -229,7 +231,7 @@ class IncognitoService(private val plugin: Incognito, val settings: IncognitoCon
 
     private fun available(alias: String): Boolean =
         plugin.server.onlinePlayers.none { it.name.equals(alias, true) } &&
-            identities.values.none { it.alias.equals(alias, true) }
+            sessionIdentities.active().none { it.alias.equals(alias, true) || it.realName.equals(alias, true) }
 
     private fun rename(player: Player, from: String, to: String?) {
         val handle = player.javaClass.getMethod("getHandle").invoke(player)

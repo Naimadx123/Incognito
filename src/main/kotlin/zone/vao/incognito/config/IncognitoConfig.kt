@@ -3,6 +3,7 @@ package zone.vao.incognito.config
 import org.bukkit.configuration.file.FileConfiguration
 import org.bukkit.configuration.file.YamlConfiguration
 import org.bukkit.plugin.java.JavaPlugin
+import zone.vao.incognito.identity.SessionAliases
 import java.io.File
 
 data class IncognitoConfig(
@@ -52,7 +53,7 @@ data class IncognitoConfig(
             val signature = config.getString("skin.signature", "")!!.trim()
             require(texture.isEmpty() == signature.isEmpty()) { "Provide skin.value and skin.signature together" }
             val format = config.getString("names.format", "Anon_{random}")!!.trim()
-            require("{random}" in format && format.replace("{random}", "").matches(Regex("[A-Za-z0-9_]{0,15}"))) { "names.format must contain {random} and only letters, digits and underscores" }
+            SessionAliases(format)
             return IncognitoConfig(
                 config.getBoolean("names.enabled", true),
                 config.getBoolean("skin.enabled", true),

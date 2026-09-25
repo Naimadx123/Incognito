@@ -16,6 +16,7 @@ import org.bukkit.inventory.ItemStack
 import org.bukkit.inventory.meta.CompassMeta
 import java.util.logging.Logger
 import java.util.Optional
+import java.util.Collections
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -59,7 +60,9 @@ internal class NativePackets(
     private val tagType = Class.forName("net.minecraft.nbt.Tag")
     private val pairType = Class.forName("com.mojang.datafixers.util.Pair")
     private val codecs = ConcurrentHashMap<Class<*>, Any>()
-    private val logged = ConcurrentHashMap.newKeySet<String>()
+    private val logged = Collections.synchronizedMap(object : LinkedHashMap<String, Boolean>() {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Boolean>): Boolean = size > 256
+    })
     private val coordinateMapper = CoordinateMapper()
     private val textPackets = setOf(
         "ClientboundSystemChatPacket", "ClientboundDisguisedChatPacket", "ClientboundSetActionBarTextPacket",
@@ -195,7 +198,7 @@ internal class NativePackets(
     }
 
     private fun debug(key: String, message: () -> String) {
-        if (settings.debug && logged.add(key)) logger.info("[debug] ${message()}")
+        if (settings.debug && logged.put(key.take(256), true) == null) logger.info("[debug] ${message().take(2048)}")
     }
 
     private fun maskProfiles(packet: Any, identities: List<Identity>, names: List<Identity>, viewer: UUID?, reveal: Boolean, profiles: ProfileIds): Any? {

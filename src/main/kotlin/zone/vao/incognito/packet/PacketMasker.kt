@@ -12,6 +12,7 @@ import zone.vao.incognito.Incognito
 import zone.vao.incognito.config.IncognitoConfig
 import zone.vao.incognito.identity.IncognitoService
 import java.util.UUID
+import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import java.util.logging.Level
 import io.papermc.paper.event.connection.configuration.PlayerConnectionInitialConfigureEvent
@@ -92,7 +93,9 @@ class PacketMasker(
             channel.closeFuture().addListener {
                 if (channels.remove(id, channel)) sessionOffsets.remove(id)
             }
-            val requests = ConcurrentHashMap<Int, SuggestionRequest>()
+            val requests = Collections.synchronizedMap(object : LinkedHashMap<Int, SuggestionRequest>() {
+                override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, SuggestionRequest>): Boolean = size > 128
+            })
             val profiles = ProfileIds(id)
             val install = Runnable {
                 if (!closed && channel.isActive) {
