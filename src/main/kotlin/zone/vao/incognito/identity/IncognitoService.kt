@@ -58,6 +58,13 @@ class IncognitoService(private val plugin: Incognito, val settings: IncognitoCon
 
     fun suggestionIdentities(): List<Identity> = suggestionNames.identities(identities())
 
+    fun publicMessage(component: Component): Component =
+        if (settings.names) headText.mask(component, packetIdentities(), CoordinateOffset.ZERO, resolvePlaceholders = false)
+        else component
+
+    fun systemMessage(component: Component): Component =
+        if (settings.maskSystemMessages) publicMessage(component) else component
+
     fun rewriteCommand(command: String): String =
         if (settings.names && settings.hideRealName) CommandNames.rewrite(command, identities.values) { plugin.server.getPlayer(it)?.isOnline == true } else command
 
@@ -154,11 +161,13 @@ class IncognitoService(private val plugin: Incognito, val settings: IncognitoCon
     }
 
     fun joinQuitMessage(player: Player, original: Component?, joining: Boolean): Component? {
-        val identity = identity(player.uniqueId) ?: return original
+        val identity = identity(player.uniqueId) ?: return original?.let(::systemMessage)
         if (!settings.joinQuit.shows(data.get(player.uniqueId)?.showJoinQuit)) return null
-        return original ?: if (settings.joinQuit.mode == JoinQuitConfig.Mode.SHOW) {
-            settings.messages.get(if (joining) "join-message" else "quit-message", identity.alias, identity.realName)
+        val message = original ?: if (settings.joinQuit.mode == JoinQuitConfig.Mode.SHOW) {
+            val name = if (settings.maskSystemMessages) identity.alias else identity.realName
+            settings.messages.get(if (joining) "join-message" else "quit-message", name, identity.realName)
         } else null
+        return message?.let(::systemMessage)
     }
 
     private fun notifyAdmins(key: String, alias: String, realName: String) {

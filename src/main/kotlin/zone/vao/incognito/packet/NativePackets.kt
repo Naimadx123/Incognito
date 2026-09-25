@@ -72,6 +72,7 @@ internal class NativePackets(
         "ClientboundContainerSetSlotPacket", "ClientboundContainerSetContentPacket", "ClientboundSetEquipmentPacket",
         "ClientboundSetCursorItemPacket", "ClientboundSetPlayerInventoryPacket", "ClientboundBlockEntityDataPacket",
         "ClientboundLevelChunkWithLightPacket", "ClientboundResetScorePacket",
+        "ClientboundPlayerCombatKillPacket",
     )
     private val textContainers = setOf("net.minecraft.network.chat.ChatType\$Bound", "net.minecraft.network.syncher.SynchedEntityData\$DataValue")
 
@@ -89,14 +90,14 @@ internal class NativePackets(
         if (type.name == "net.minecraft.network.protocol.game.ClientboundPlayerChatPacket" && (names.isNotEmpty() || RevealedNames.active())) return mask(disguise(packet), identities, offset, requests, id, reveal, profiles)
         if (type.simpleName == "ClientboundDisguisedChatPacket") {
             return NativeReflection.record(packet) { name, value ->
-                transform(value, if (name == "message") emptyList() else names, offset, reveal)
+                transform(value, if (name == "message" && !settings.maskPlayerMessages) emptyList() else names, offset, reveal)
             }
         }
         if (type.simpleName == "ClientboundSystemChatPacket" && field(packet, "overlay") == false) {
             return NativeReflection.record(packet) { name, value ->
                 if (name == "content" && value != null) {
                     val adventure = if (value is Component) value else toAdventure.invoke(null, value) as Component
-                    val masked = adminMessage(adventure, id) ?: components.system(adventure, names, offset, reveal)
+                    val masked = adminMessage(adventure, id) ?: components.system(adventure, names, offset, reveal, settings.maskPlayerMessages, settings.maskSystemMessages)
                     if (value is Component) masked else toVanilla.invoke(null, masked)
                 } else value
             }
@@ -157,7 +158,8 @@ internal class NativePackets(
         }
         val heads = if (settings.heads && (settings.names || settings.skin)) identities else emptyList()
         if (names.isEmpty() && heads.isEmpty() && offset == CoordinateOffset.ZERO && !RevealedNames.active() || type.packageName != "net.minecraft.network.protocol.game" || type.simpleName !in textPackets) return result
-        val masked = transform(if (result !== packet || type.isRecord) result else copy(packet), names, offset, reveal, heads)!!
+        val textNames = if (type.simpleName == "ClientboundPlayerCombatKillPacket" && !settings.maskSystemMessages) emptyList() else names
+        val masked = transform(if (result !== packet || type.isRecord) result else copy(packet), textNames, offset, reveal, heads)!!
         if (names.isEmpty()) return masked
         return when (type.simpleName) {
             "ClientboundSetScorePacket", "ClientboundResetScorePacket" -> NativeReflection.record(masked) { name, value -> if (name == "owner") text.mask(value as String, names, CoordinateOffset.ZERO) else value }

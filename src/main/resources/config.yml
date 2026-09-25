@@ -24,6 +24,8 @@ names:
   # capped at 16 characters, so a longer prefix shortens the random part.
   # Changing the format gives players a new alias on their next login.
   format: 'Anon_{random}'
+  mask-player-messages: false
+  mask-system-messages: true
 
 join-quit:
   # player: use the player's saved choice; show/hide: force it and block switching.

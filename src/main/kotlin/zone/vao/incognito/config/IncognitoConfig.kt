@@ -23,6 +23,8 @@ data class IncognitoConfig(
     val debug: Boolean,
     val messages: Messages,
     val joinQuit: JoinQuitConfig,
+    val maskPlayerMessages: Boolean,
+    val maskSystemMessages: Boolean,
 ) {
     companion object {
         fun sync(plugin: JavaPlugin) {
@@ -71,6 +73,8 @@ data class IncognitoConfig(
                 config.getBoolean("debug", false),
                 Messages(config),
                 JoinQuitConfig.load(config),
+                config.getBoolean("names.mask-player-messages", false),
+                config.getBoolean("names.mask-system-messages", true),
             )
         }
     }

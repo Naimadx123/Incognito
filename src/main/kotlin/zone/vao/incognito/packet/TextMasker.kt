@@ -30,9 +30,21 @@ class TextMasker(private val patterns: List<Regex>) {
         last?.let { if (it.first === identities) return it.second }
         return synchronized(cache) {
             val compiled = cache.getOrPut(identities.toList()) {
+                val replacements = buildMap {
+                    identities.forEach {
+                        put(it.realName.lowercase(), it.alias)
+                        put(it.id.toString(), it.maskedId.toString())
+                        put(it.id.toString().replace("-", ""), it.maskedId.toString().replace("-", ""))
+                    }
+                }
+                val uuids = identities.flatMap { listOf(it.id.toString(), it.id.toString().replace("-", "")) }
                 Names(
-                    Regex("(?<![A-Za-z0-9_])(?:${identities.joinToString("|") { Regex.escape(it.realName) }})(?![A-Za-z0-9_])", RegexOption.IGNORE_CASE),
-                    identities.associate { it.realName.lowercase() to it.alias },
+                    Regex(
+                        "(?<![A-Za-z0-9_])(?:${identities.joinToString("|") { Regex.escape(it.realName) }})(?![A-Za-z0-9_])|" +
+                            "(?<![a-f0-9])(?:${uuids.joinToString("|")})(?![a-f0-9])",
+                        RegexOption.IGNORE_CASE,
+                    ),
+                    replacements,
                 )
             }
             last = identities to compiled
@@ -41,7 +53,7 @@ class TextMasker(private val patterns: List<Regex>) {
     }
 
     fun restore(text: String, identities: List<Identity>, offset: CoordinateOffset): String =
-        mask(text, identities.map { it.copy(realName = it.alias, alias = it.realName) }, offset.inverse())
+        mask(text, identities.map { it.copy(id = it.maskedId, realName = it.alias, alias = it.realName, maskedId = it.id) }, offset.inverse())
 
     fun suggestion(text: String, identities: List<Identity>, offset: CoordinateOffset, preceding: Int): String {
         val parts = text.split(' ')

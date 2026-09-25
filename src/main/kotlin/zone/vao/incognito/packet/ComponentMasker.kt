@@ -19,11 +19,12 @@ class ComponentMasker(private val text: TextMasker, private val fallback: (Strin
     private val plain = PlainTextComponentSerializer.plainText()
     private val chatTypes = setOf("chat.type.text", "chat.type.announcement", "chat.type.emote", "commands.message.display.incoming", "commands.message.display.outgoing")
 
-    fun system(component: Component, identities: List<Identity>, offset: CoordinateOffset, reveal: Boolean = false): Component =
-        if (component is TranslatableComponent && component.key() in chatTypes) chat(component, identities, offset, reveal)
-        else mask(component, identities, offset, reveal)
+    fun system(component: Component, identities: List<Identity>, offset: CoordinateOffset, reveal: Boolean = false, maskPlayerMessages: Boolean = false, maskSystemMessages: Boolean = true): Component =
+        if (component is TranslatableComponent && component.key() in chatTypes) chat(component, identities, offset, reveal, maskPlayerMessages)
+        else mask(component, if (maskSystemMessages) identities else emptyList(), offset, reveal)
 
-    fun chat(component: Component, identities: List<Identity>, offset: CoordinateOffset, reveal: Boolean = false): Component {
+    fun chat(component: Component, identities: List<Identity>, offset: CoordinateOffset, reveal: Boolean = false, maskPlayerMessages: Boolean = false): Component {
+        if (maskPlayerMessages) return mask(component, identities, offset, reveal)
         if (component is TranslatableComponent) {
             if (component.key() in chatTypes) {
                 return component.arguments(component.arguments().mapIndexed { index, argument ->
@@ -35,7 +36,7 @@ class ComponentMasker(private val text: TextMasker, private val fallback: (Strin
         return mask(component, emptyList(), offset, reveal)
     }
 
-    fun mask(component: Component, identities: List<Identity>, offset: CoordinateOffset, reveal: Boolean = false): Component {
+    fun mask(component: Component, identities: List<Identity>, offset: CoordinateOffset, reveal: Boolean = false, resolvePlaceholders: Boolean = true): Component {
         if (identities.isEmpty() && offset == CoordinateOffset.ZERO && !RevealedNames.active() && !CommandNames.contains(codec.serialize(component)) && !CommandNames.contains(plain.serialize(component))) return component
         val names = identities
         var masked = visit(component, { id -> names.firstOrNull { it.id == id }?.maskedId ?: id }) { text.mask(it, names, offset) }
@@ -43,8 +44,10 @@ class ComponentMasker(private val text: TextMasker, private val fallback: (Strin
             fallback(codec.serialize(component))
             masked = Component.text(text.mask(plain.serialize(component), names, offset))
         }
-        masked = visit(masked) { CommandNames.resolve(RevealedNames.resolve(it, reveal)) }
-        if (RevealedNames.contains(plain.serialize(masked)) || CommandNames.contains(plain.serialize(masked))) masked = Component.text(CommandNames.resolve(RevealedNames.resolve(plain.serialize(masked), reveal)))
+        if (resolvePlaceholders) {
+            masked = visit(masked) { CommandNames.resolve(RevealedNames.resolve(it, reveal)) }
+            if (RevealedNames.contains(plain.serialize(masked)) || CommandNames.contains(plain.serialize(masked))) masked = Component.text(CommandNames.resolve(RevealedNames.resolve(plain.serialize(masked), reveal)))
+        }
         return if (masked == component) component else masked
     }
 
