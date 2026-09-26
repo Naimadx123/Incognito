@@ -68,6 +68,11 @@ coordinates:
     - '\bz\s*[:=]\s*(?<z>-?\d+(?:\.\d+)?)'
     - '\[(?<x>-?\d+), ~, (?<z>-?\d+)\]'
 
+# Hide incognito players from web maps (dynmap, BlueMap, squaremap, Pl3xMap). Those maps read
+# positions and names from the server directly, so packet masking cannot reach them. Players are
+# shown again when incognito ends. Players hidden by other plugins are left untouched.
+maps: true
+
 placeholders:
   # Wrap every PlaceholderAPI expansion so placeholder results (%player_name%, %player_x%, ...)
   # go through the same name and coordinate filter.

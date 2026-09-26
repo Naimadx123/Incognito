@@ -25,6 +25,8 @@ repositories {
     mavenCentral()
     maven("https://repo.papermc.io/repository/maven-public/")
     maven("https://repo.extendedclip.com/releases/")
+    maven("https://repo.mikeprimm.com/")
+    maven("https://repo.bluecolored.de/releases/")
 }
 
 configurations.testImplementation {
@@ -42,6 +44,9 @@ dependencies {
     compileOnly("com.mysql:mysql-connector-j:26.7.0")
     compileOnly("org.postgresql:postgresql:42.7.13")
     compileOnly("redis.clients:jedis:8.0.1")
+    compileOnly("us.dynmap:DynmapCoreAPI:3.8")
+    compileOnly("de.bluecolored:bluemap-api:2.7.8")
+    compileOnly("xyz.jpenilla:squaremap-api:1.4.0")
     testImplementation(kotlin("test"))
 }
 

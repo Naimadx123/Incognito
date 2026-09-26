@@ -20,6 +20,7 @@ import zone.vao.incognito.coordinate.CoordinateSessions
 import zone.vao.incognito.network.NetworkClaim
 import zone.vao.incognito.network.NetworkSession
 import zone.vao.incognito.network.RedisNetwork
+import zone.vao.incognito.hook.MapHooks
 import java.util.concurrent.TimeUnit
 import zone.vao.incognito.storage.PlayerDataService
 import zone.vao.incognito.storage.PlayerRecord
@@ -30,6 +31,7 @@ class IncognitoService(
     val settings: IncognitoConfig,
     private val data: PlayerDataService,
     private val network: RedisNetwork? = null,
+    private val maps: MapHooks? = null,
 ) {
 
     private val identities = ConcurrentHashMap<UUID, Identity>()
@@ -149,6 +151,7 @@ class IncognitoService(
                 return@region
             }
             identities[player.uniqueId] = identity
+            maps?.hide(player)
             if (settings.names) {
                 trackNames(player)
                 rename(player, if (settings.hideRealName) player.name else identity.alias, identity.alias)
@@ -262,6 +265,7 @@ class IncognitoService(
         nameTasks.remove(player.uniqueId)?.cancel()
         suggestionNames.remove(player.uniqueId)
         val identity = identities.remove(player.uniqueId) ?: return
+        maps?.show(player)
         if (settings.names) rename(player, identity.alias, if (refresh) player.name else null)
         if (refresh && (settings.names || settings.skin)) refresh(player)
         if (refresh) player.updateCommands()

@@ -11,6 +11,7 @@ import zone.vao.incognito.packet.PacketMasker
 import zone.vao.incognito.hook.IncognitoExpansion
 import zone.vao.incognito.hook.PlaceholderMasker
 import zone.vao.incognito.hook.IncognitoMiniPlaceholders
+import zone.vao.incognito.hook.MapHooks
 import zone.vao.incognito.storage.PlayerDataService
 import zone.vao.incognito.storage.StorageConfig
 import zone.vao.incognito.storage.StorageFactory
@@ -36,7 +37,7 @@ class Incognito : JavaPlugin() {
         data = storage
         val networkConfig = NetworkConfig.load(config)
         network = if (networkConfig.enabled) RedisNetwork(networkConfig, logger, storage::receive).also { storage.listener = it::publish } else null
-        incognitoService = IncognitoService(this, settings, storage, network)
+        incognitoService = IncognitoService(this, settings, storage, network, if (settings.maps) MapHooks(this) else null)
         packets = PacketMasker(this, incognitoService, settings).also { it.register() }
         server.pluginManager.registerEvents(IncognitoListener(incognitoService), this)
         if (server.pluginManager.isPluginEnabled("PlaceholderAPI")) {
