@@ -135,7 +135,7 @@ MiniPlaceholders tags require a player audience. Incognito's own placeholders ar
 
 ## Storage
 
-The default backend is SQLite at `plugins/Incognito/data.db`. Records contain the UUID, real name, requested incognito state, message preference and last alias needed for the disable notification. The stored alias is used for notifications; a new alias is generated at login. Coordinate offsets are stored separately in `coordinate-sessions.yml`.
+The default backend is SQLite at `plugins/Incognito/data.db`. Records contain the UUID, real name, requested incognito state, message preference and last alias needed for the disable notification. The stored alias is used for notifications; a new alias is generated at login. Coordinate offsets are kept in memory only and a new one is chosen for each session.
 
 For MySQL, create a database and configure:
 
@@ -152,6 +152,22 @@ storage:
 ```
 
 For PostgreSQL, use `type: postgresql` (or `postgres`) and the appropriate port, usually `5432`. The database account must be able to create and alter tables. Switching backends does not automatically transfer records between databases. Writes are asynchronous, and pending changes are flushed during a normal plugin shutdown.
+
+## Networks and sector servers
+
+With `network.enabled: true` every server shares incognito sessions through Redis. A player keeps the same alias, masked profile and coordinate offset when switching servers, so sector servers that split one map show consistent coordinates across transfers. Aliases are reserved network-wide, and incognito state changes are pushed to the other servers.
+
+```yaml
+network:
+  enabled: true
+  host: redis.internal
+  port: 6379
+  password: ''
+  key-prefix: 'incognito:'
+  session-timeout: 60
+```
+
+Sessions are not persisted: once a player has been off the whole network for longer than `session-timeout` seconds, the next login gets a new alias and offset. Use a shared MySQL or PostgreSQL `storage` on every server so all of them read the same incognito state. If Redis is unreachable, players get local sessions and a warning is logged.
 
 ## Building
 

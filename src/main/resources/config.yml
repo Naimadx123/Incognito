@@ -9,6 +9,23 @@ storage:
   password: ''
   table-prefix: incognito_
   pool-size: 4
+# Share incognito sessions between servers through Redis. A player keeps the same alias, masked
+# profile and coordinate offset when switching servers, which sector servers on one map need.
+# Sessions live only in Redis: after a player has been off the whole network for longer than
+# session-timeout, the next login gets a new alias and a new offset. Use a shared MySQL or
+# PostgreSQL storage on every server; Redis also pushes incognito state changes between them.
+network:
+  enabled: false
+  host: localhost
+  port: 6379
+  username: ''
+  password: ''
+  database: 0
+  ssl: false
+  key-prefix: 'incognito:'
+  # Seconds a session survives after the player leaves the last server (15-86400).
+  session-timeout: 60
+
 names:
   # Replace the real name with an alias in the profile, TAB, nametag, chat and every text sent to clients.
   enabled: true

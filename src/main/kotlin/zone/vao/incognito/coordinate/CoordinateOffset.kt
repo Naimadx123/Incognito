@@ -1,5 +1,7 @@
 package zone.vao.incognito.coordinate
 
+import java.security.SecureRandom
+
 data class CoordinateOffset(val x: Int, val z: Int) {
 
     init {
@@ -18,5 +20,11 @@ data class CoordinateOffset(val x: Int, val z: Int) {
 
     companion object {
         val ZERO = CoordinateOffset(0, 0)
+        private val source = SecureRandom()
+
+        fun random(): CoordinateOffset {
+            fun axis(): Int = (2048 + source.nextInt(2048)) * 16 * if (source.nextBoolean()) 1 else -1
+            return CoordinateOffset(axis(), axis())
+        }
     }
 }

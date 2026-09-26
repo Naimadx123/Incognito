@@ -14,6 +14,7 @@ class PlayerDataService(private val storage: PlayerStorage, private val logger: 
     private val writes = Any()
     private val io = Executors.newSingleThreadScheduledExecutor { task -> Thread(task, "incognito-storage").apply { isDaemon = true } }
     @Volatile private var closed = false
+    @Volatile var listener: ((PlayerRecord) -> Unit)? = null
 
     init {
         try {
@@ -34,6 +35,13 @@ class PlayerDataService(private val storage: PlayerStorage, private val logger: 
     @Synchronized
     fun save(record: PlayerRecord) {
         check(!closed) { "Incognito storage is closed" }
+        cache[record.id] = record
+        dirty[record.id] = record
+        listener?.invoke(record)
+    }
+
+    fun receive(record: PlayerRecord) {
+        if (closed || cache[record.id] == record) return
         cache[record.id] = record
         dirty[record.id] = record
     }

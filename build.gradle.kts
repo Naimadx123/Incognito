@@ -41,6 +41,7 @@ dependencies {
     compileOnly("org.xerial:sqlite-jdbc:3.53.4.0")
     compileOnly("com.mysql:mysql-connector-j:26.7.0")
     compileOnly("org.postgresql:postgresql:42.7.13")
+    compileOnly("redis.clients:jedis:8.0.1")
     testImplementation(kotlin("test"))
 }
 

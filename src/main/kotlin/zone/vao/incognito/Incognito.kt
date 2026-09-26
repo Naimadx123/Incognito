@@ -14,6 +14,8 @@ import zone.vao.incognito.hook.IncognitoMiniPlaceholders
 import zone.vao.incognito.storage.PlayerDataService
 import zone.vao.incognito.storage.StorageConfig
 import zone.vao.incognito.storage.StorageFactory
+import zone.vao.incognito.network.NetworkConfig
+import zone.vao.incognito.network.RedisNetwork
 
 class Incognito : JavaPlugin() {
 
@@ -24,6 +26,7 @@ class Incognito : JavaPlugin() {
     private var placeholders: PlaceholderMasker? = null
     private var miniPlaceholders: IncognitoMiniPlaceholders? = null
     private var data: PlayerDataService? = null
+    private var network: RedisNetwork? = null
 
     override fun onEnable() {
         IncognitoConfig.sync(this)
@@ -31,7 +34,9 @@ class Incognito : JavaPlugin() {
         val settings = IncognitoConfig.load(config)
         val storage = PlayerDataService(StorageFactory.create(dataFolder, StorageConfig.load(config)), logger)
         data = storage
-        incognitoService = IncognitoService(this, settings, storage)
+        val networkConfig = NetworkConfig.load(config)
+        network = if (networkConfig.enabled) RedisNetwork(networkConfig, logger, storage::receive).also { storage.listener = it::publish } else null
+        incognitoService = IncognitoService(this, settings, storage, network)
         packets = PacketMasker(this, incognitoService, settings).also { it.register() }
         server.pluginManager.registerEvents(IncognitoListener(incognitoService), this)
         if (server.pluginManager.isPluginEnabled("PlaceholderAPI")) {
@@ -56,7 +61,11 @@ class Incognito : JavaPlugin() {
             expansion?.unregister()
             if (::incognitoService.isInitialized) incognitoService.close()
         } finally {
-            data?.close()
+            try {
+                network?.close()
+            } finally {
+                data?.close()
+            }
         }
     }
 }

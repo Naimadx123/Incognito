@@ -17,12 +17,20 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import zone.vao.incognito.coordinate.CoordinateOffset
 import zone.vao.incognito.coordinate.CoordinateSessions
-import java.io.File
+import zone.vao.incognito.network.NetworkClaim
+import zone.vao.incognito.network.NetworkSession
+import zone.vao.incognito.network.RedisNetwork
+import java.util.concurrent.TimeUnit
 import zone.vao.incognito.storage.PlayerDataService
 import zone.vao.incognito.storage.PlayerRecord
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask
 
-class IncognitoService(private val plugin: Incognito, val settings: IncognitoConfig, private val data: PlayerDataService) {
+class IncognitoService(
+    private val plugin: Incognito,
+    val settings: IncognitoConfig,
+    private val data: PlayerDataService,
+    private val network: RedisNetwork? = null,
+) {
 
     private val identities = ConcurrentHashMap<UUID, Identity>()
     private val sessionIdentities = IdentitySessions()
@@ -32,7 +40,15 @@ class IncognitoService(private val plugin: Incognito, val settings: IncognitoCon
     private val suggestionNames = SuggestionNames()
     private val nameTasks = ConcurrentHashMap<UUID, ScheduledTask>()
     private val adminMessages = AdminMessages()
-    val coordinateSessions = CoordinateSessions(File(plugin.dataFolder, "coordinate-sessions.yml"))
+    val coordinateSessions = CoordinateSessions()
+    private val claims = ConcurrentHashMap<UUID, NetworkClaim>()
+    private val continued = ConcurrentHashMap.newKeySet<UUID>()
+    private val heartbeat = network?.let {
+        plugin.server.asyncScheduler.runAtFixedRate(plugin, { _ ->
+            runCatching { it.refresh(identities().map(Identity::id)) }
+                .onFailure { error -> plugin.logger.warning("Cannot refresh incognito sessions in Redis (${error.javaClass.simpleName}).") }
+        }, 5, 10, TimeUnit.SECONDS)
+    }
     private val playersByName: MutableMap<String, Any> by lazy {
         val server = plugin.server.javaClass.getMethod("getServer").invoke(plugin.server)
         val list = server.javaClass.getMethod("getPlayerList").invoke(server)
@@ -70,16 +86,36 @@ class IncognitoService(private val plugin: Incognito, val settings: IncognitoCon
 
     fun offset(id: UUID): CoordinateOffset = if (settings.coordinates) coordinateSessions.get(id) else CoordinateOffset.ZERO
 
+    fun claimSession(id: UUID) {
+        val network = network ?: return
+        try {
+            if (data.get(id)?.enabled != true) {
+                network.release(id)
+                return
+            }
+            claims[id] = network.claim(id) { taken ->
+                val alias = synchronized(aliases) { aliases.next(sessionIdentities.previous(id)?.alias) { available(it) && !taken(it) } }
+                NetworkSession(alias, UUID.randomUUID(), CoordinateOffset.random())
+            }
+        } catch (error: Exception) {
+            plugin.logger.warning("Cannot share the incognito session of $id through Redis (${error.javaClass.simpleName}); using a local session.")
+        }
+    }
+
     fun prepareSession(id: UUID, realName: String) {
+        val claim = claims.remove(id)
         if (data.get(id)?.enabled != true) {
             sessionIdentities.remove(id)
             preparedSessions.remove(id)
             coordinateSessions.disable(id)
+            continued.remove(id)
             return
         }
-        if (settings.coordinates) coordinateSessions.enable(id)
+        if (settings.coordinates) coordinateSessions.enable(id, claim?.session?.offset)
         synchronized(aliases) {
-            val identity = createIdentity(id, realName)
+            val identity = claim?.session?.let { Identity(id, realName, if (settings.names) it.alias else realName, it.maskedId) }
+                ?: createIdentity(id, realName)
+            if (claim?.continued == true) continued.add(id) else continued.remove(id)
             sessionIdentities.put(identity)
             preparedSessions[id] = identity
         }
@@ -119,7 +155,9 @@ class IncognitoService(private val plugin: Incognito, val settings: IncognitoCon
             }
             player.updateCommands()
             data.save(record.copy(realName = player.name, lastAlias = identity.alias))
-            notifyAdmins(if (record.lastAlias == null) "notify-enabled" else "notify-alias-changed", identity.alias, identity.realName)
+            if (!continued.remove(player.uniqueId)) {
+                notifyAdmins(if (record.lastAlias == null) "notify-enabled" else "notify-alias-changed", identity.alias, identity.realName)
+            }
         }
     }
 
@@ -207,11 +245,14 @@ class IncognitoService(private val plugin: Incognito, val settings: IncognitoCon
 
     fun forget(player: Player) {
         preparedSessions.remove(player.uniqueId)
+        continued.remove(player.uniqueId)
+        network?.forget(player.uniqueId)
         restore(player, false)
         sessionIdentities.retire(player.uniqueId)
     }
 
     fun close() {
+        heartbeat?.cancel()
         nameTasks.values.forEach { it.cancel() }
         nameTasks.clear()
         plugin.server.onlinePlayers.forEach { region(it) { restore(it) } }

@@ -11,6 +11,7 @@ libraries:
   - org.xerial:sqlite-jdbc:3.53.4.0
   - com.mysql:mysql-connector-j:26.7.0
   - org.postgresql:postgresql:42.7.13
+  - redis.clients:jedis:8.0.1
 permissions:
   incognito.use:
     default: op

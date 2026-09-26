@@ -4,6 +4,7 @@ import com.destroystokyo.paper.event.server.PaperServerListPingEvent
 import org.bukkit.event.EventHandler
 import org.bukkit.event.EventPriority
 import org.bukkit.event.Listener
+import org.bukkit.event.player.AsyncPlayerPreLoginEvent
 import org.bukkit.event.player.PlayerJoinEvent
 import org.bukkit.event.player.PlayerQuitEvent
 import org.bukkit.event.player.PlayerCommandPreprocessEvent
@@ -12,6 +13,11 @@ import org.bukkit.event.entity.PlayerDeathEvent
 import io.papermc.paper.event.player.AsyncChatEvent
 
 class IncognitoListener(private val service: IncognitoService) : Listener {
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    fun onPreLogin(event: AsyncPlayerPreLoginEvent) {
+        if (event.loginResult == AsyncPlayerPreLoginEvent.Result.ALLOWED) service.claimSession(event.uniqueId)
+    }
 
     @EventHandler(priority = EventPriority.LOWEST)
     fun onJoin(event: PlayerJoinEvent) {
