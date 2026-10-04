@@ -2,6 +2,8 @@
 
 Incognito is a Minecraft plugin for Paper and Folia that lets players hide their identity behind a random alias. It masks names and skins in data sent to clients and shifts visible world coordinates. Administrators can manage players' incognito settings and receive notifications about identity changes.
 
+Download the plugin from [Modrinth](https://modrinth.com/plugin/incognito-naimad).
+
 ## Features
 
 - A random alias on each incognito login, used in the profile, player list and nametag.
