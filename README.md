@@ -81,8 +81,8 @@ Online players with `incognito.admin` receive notifications when a pending chang
 Example messages after a change takes effect:
 
 ```text
-Incognito >> Player Notch enabled incognito, new nickname: incognito123
-Incognito >> Player incognito123 disabled incognito, new nickname: Notch
+Incognito >> Player Notch enabled incognito, new nickname: Anon_0123456789
+Incognito >> Player Anon_0123456789 disabled incognito, new nickname: Notch
 ```
 
 Before reconnection, the notification describes the pending change. Rejoining with incognito still active sends a new-alias notification. Canceling a pending change has a separate notification; requesting an already saved state does not send another notification.

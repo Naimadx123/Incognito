@@ -39,7 +39,9 @@ class ComponentMasker(private val text: TextMasker, private val fallback: (Strin
     fun mask(component: Component, identities: List<Identity>, offset: CoordinateOffset, reveal: Boolean = false, resolvePlaceholders: Boolean = true): Component {
         if (identities.isEmpty() && offset == CoordinateOffset.ZERO && !RevealedNames.active() && !CommandNames.contains(codec.serialize(component)) && !CommandNames.contains(plain.serialize(component))) return component
         val names = identities
-        var masked = visit(component, { id -> names.firstOrNull { it.id == id }?.maskedId ?: id }) { text.mask(it, names, offset) }
+        var masked = visit(component, { id -> names.firstOrNull { it.id == id }?.maskedId ?: id }, { value, axis ->
+            if (offset == CoordinateOffset.ZERO) null else text.axis(text.mask(value, names, CoordinateOffset.ZERO), offset, axis)
+        }) { text.mask(it, names, offset) }
         if (text.exposes(plain.serialize(masked), names) || text.exposes(codec.serialize(masked), names)) {
             fallback(codec.serialize(component))
             masked = Component.text(text.mask(plain.serialize(component), names, offset))
@@ -51,16 +53,25 @@ class ComponentMasker(private val text: TextMasker, private val fallback: (Strin
         return if (masked == component) component else masked
     }
 
-    private fun visit(component: Component, profileId: (UUID) -> UUID = { it }, replace: (String) -> String): Component {
+    private fun visit(component: Component, profileId: (UUID) -> UUID = { it }, coordinate: (String, String) -> String? = { _, _ -> null }, axis: String? = null, replace: (String) -> String): Component {
         var result = when (component) {
-            is TextComponent -> component.content(replace(component.content()))
-            is TranslatableComponent -> component.arguments(component.arguments().map { visit(it.asComponent(), profileId, replace) })
+            is TextComponent -> component.content(axis?.let { coordinate(component.content(), it) } ?: replace(component.content()))
+            is TranslatableComponent -> component.arguments(component.arguments().mapIndexed { index, argument ->
+                val argumentAxis = if (component.key() == "commands.teleport.success.location.single" || component.key() == "commands.teleport.success.location.multiple") {
+                    when (index) {
+                        1 -> "x"
+                        3 -> "z"
+                        else -> null
+                    }
+                } else null
+                visit(argument.asComponent(), profileId, coordinate, argumentAxis, replace)
+            })
             else -> component
         }
-        result = result.children(result.children().map { visit(it, profileId, replace) })
+        result = result.children(result.children().map { visit(it, profileId, coordinate, replace = replace) })
         when (val hover = result.hoverEvent()?.value()) {
-            is Component -> result = result.hoverEvent(HoverEvent.showText(visit(hover, profileId, replace)))
-            is HoverEvent.ShowEntity -> result = result.hoverEvent(HoverEvent.showEntity(hover.type(), profileId(hover.id()), hover.name()?.let { visit(it, profileId, replace) }))
+            is Component -> result = result.hoverEvent(HoverEvent.showText(visit(hover, profileId, coordinate, replace = replace)))
+            is HoverEvent.ShowEntity -> result = result.hoverEvent(HoverEvent.showEntity(hover.type(), profileId(hover.id()), hover.name()?.let { visit(it, profileId, coordinate, replace = replace) }))
         }
         result.insertion()?.let { result = result.insertion(replace(it)) }
         val click = result.clickEvent()
