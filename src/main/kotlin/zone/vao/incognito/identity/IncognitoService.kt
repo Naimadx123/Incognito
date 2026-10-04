@@ -2,10 +2,12 @@ package zone.vao.incognito.identity
 
 import com.destroystokyo.paper.profile.ProfileProperty
 import net.kyori.adventure.text.Component
+import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder
 import org.bukkit.Material
 import org.bukkit.inventory.ItemStack
 import org.bukkit.inventory.meta.SkullMeta
 import org.bukkit.entity.Player
+import org.bukkit.command.CommandSender
 import zone.vao.incognito.Incognito
 import zone.vao.incognito.config.IncognitoConfig
 import zone.vao.incognito.config.JoinQuitConfig
@@ -24,6 +26,10 @@ import zone.vao.incognito.hook.MapHooks
 import java.util.concurrent.TimeUnit
 import zone.vao.incognito.storage.PlayerDataService
 import zone.vao.incognito.storage.PlayerRecord
+import zone.vao.incognito.storage.HistoryLookup
+import java.time.Instant
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 import io.papermc.paper.threadedregions.scheduler.ScheduledTask
 
 class IncognitoService(
@@ -42,6 +48,8 @@ class IncognitoService(
     private val suggestionNames = SuggestionNames()
     private val nameTasks = ConcurrentHashMap<UUID, ScheduledTask>()
     private val adminMessages = AdminMessages()
+    private val historyRequests = ConcurrentHashMap.newKeySet<CommandSender>()
+    private val historyTime = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss 'UTC'").withZone(ZoneOffset.UTC)
     val coordinateSessions = CoordinateSessions()
     private val claims = ConcurrentHashMap<UUID, NetworkClaim>()
     private val continued = ConcurrentHashMap.newKeySet<UUID>()
@@ -83,8 +91,13 @@ class IncognitoService(
     fun systemMessage(component: Component): Component =
         if (settings.maskSystemMessages) publicMessage(component) else component
 
-    fun rewriteCommand(command: String): String =
-        if (settings.names && settings.hideRealName) CommandNames.rewrite(command, identities.values) { plugin.server.getPlayer(it)?.isOnline == true } else command
+    fun rewriteCommand(command: String, sender: CommandSender? = null): String {
+        val parts = command.trim().split(Regex("\\s+"), limit = 4)
+        val label = parts.firstOrNull()?.removePrefix("/")?.lowercase()
+        if (label in setOf("incognito", "incog", "incognito:incognito", "incognito:incog") && parts.getOrNull(1) == "history" &&
+            parts.getOrNull(2) in setOf("alias", "player") && sender?.hasPermission("incognito.history") == true) return command
+        return if (settings.names && settings.hideRealName) CommandNames.rewrite(command, identities.values) { plugin.server.getPlayer(it)?.isOnline == true } else command
+    }
 
     fun offset(id: UUID): CoordinateOffset = if (settings.coordinates) coordinateSessions.get(id) else CoordinateOffset.ZERO
 
@@ -151,6 +164,7 @@ class IncognitoService(
                 return@region
             }
             identities[player.uniqueId] = identity
+            data.startSession(identity.id, identity.realName, identity.alias, identity.maskedId, settings.historyServer)
             maps?.hide(player)
             if (settings.names) {
                 trackNames(player)
@@ -224,7 +238,58 @@ class IncognitoService(
     }
 
     internal fun resolveAdminMessage(component: Component, recipient: UUID?): Component? =
-        adminMessages.resolve(component, recipient, recipient?.let { plugin.server.getPlayer(it)?.hasPermission("incognito.admin") } == true)
+        adminMessages.resolve(component, recipient) { permission -> recipient?.let { plugin.server.getPlayer(it)?.hasPermission(permission) } == true }
+
+    fun showHistory(sender: CommandSender, lookup: HistoryLookup, value: String, page: Int) {
+        if (!sender.hasPermission("incognito.history")) {
+            sender.sendMessage(settings.messages.get("no-permission"))
+            return
+        }
+        if (!historyRequests.add(sender)) {
+            sender.sendMessage(settings.messages.get("history-busy"))
+            return
+        }
+        sender.sendMessage(settings.messages.get("history-loading"))
+        val request = runCatching { data.history(lookup, value, page) }.getOrElse {
+            historyRequests.remove(sender)
+            sender.sendMessage(settings.messages.get("history-failed"))
+            return
+        }
+        request.whenComplete { sessions, error ->
+            historyRequests.remove(sender)
+            if (!plugin.isEnabled) return@whenComplete
+            val send = action@{
+                if (!sender.hasPermission("incognito.history") || sender is Player && !sender.isOnline) return@action
+                val query = Placeholder.unparsed("query", value)
+                val pageTag = Placeholder.unparsed("page", page.toString())
+                val message = when {
+                    error != null -> settings.messages.get("history-failed")
+                    sessions.isEmpty() -> settings.messages.get("history-empty", extra = arrayOf(query, pageTag))
+                    else -> {
+                        var result = settings.messages.get("history-header", extra = arrayOf(query, pageTag))
+                        for (session in sessions.take(10)) {
+                            result = result.append(Component.newline()).append(settings.messages.get(
+                                "history-entry", session.alias, session.realName,
+                                Placeholder.unparsed("uuid", session.playerId.toString()),
+                                Placeholder.unparsed("session", session.sessionId.toString()),
+                                Placeholder.unparsed("server", session.server),
+                                Placeholder.unparsed("started", historyTime.format(Instant.ofEpochMilli(session.startedAt))),
+                                Placeholder.component("ended", session.endedAt?.let { Component.text(historyTime.format(Instant.ofEpochMilli(it))) }
+                                    ?: settings.messages.get("history-open")),
+                            ))
+                        }
+                        if (sessions.size > 10 && page < 1_000_000) {
+                            val command = "/incognito history ${lookup.name.lowercase()} $value ${page + 1}"
+                            result = result.append(Component.newline()).append(settings.messages.get("history-next", extra = arrayOf(Placeholder.unparsed("command", command))))
+                        }
+                        result
+                    }
+                }
+                sender.sendMessage(if (sender is Player) adminMessages.prepare(sender.uniqueId, message, "incognito.history") else message)
+            }
+            if (sender is Player) region(sender, send) else plugin.server.globalRegionScheduler.execute(plugin, send)
+        }
+    }
 
     fun maskHead(item: ItemStack): Boolean {
         if (item.type != Material.PLAYER_HEAD) return false
@@ -247,6 +312,7 @@ class IncognitoService(
     }
 
     fun forget(player: Player) {
+        data.endSession(player.uniqueId)
         preparedSessions.remove(player.uniqueId)
         continued.remove(player.uniqueId)
         network?.forget(player.uniqueId)

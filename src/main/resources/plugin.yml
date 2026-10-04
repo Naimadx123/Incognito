@@ -20,3 +20,6 @@ permissions:
     default: op
   incognito.reveal:
     default: op
+  incognito.history:
+    description: Look up incognito session history, including real names and UUIDs.
+    default: op

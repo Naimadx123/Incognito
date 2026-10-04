@@ -26,6 +26,7 @@ data class IncognitoConfig(
     val joinQuit: JoinQuitConfig,
     val maskPlayerMessages: Boolean,
     val maskSystemMessages: Boolean,
+    val historyServer: String,
 ) {
     companion object {
         fun sync(plugin: JavaPlugin) {
@@ -57,6 +58,8 @@ data class IncognitoConfig(
             require(texture.isEmpty() == signature.isEmpty()) { "Provide skin.value and skin.signature together" }
             val format = config.getString("names.format", "Anon_{random}")!!.trim()
             SessionAliases(format)
+            val historyServer = config.getString("history.server-id", "server")!!.trim()
+            require(historyServer.length in 1..64 && historyServer.matches(Regex("[A-Za-z0-9_.-]+"))) { "history.server-id must contain 1-64 letters, digits, underscores, dots or hyphens" }
             return IncognitoConfig(
                 config.getBoolean("names.enabled", true),
                 config.getBoolean("skin.enabled", true),
@@ -77,6 +80,7 @@ data class IncognitoConfig(
                 JoinQuitConfig.load(config),
                 config.getBoolean("names.mask-player-messages", false),
                 config.getBoolean("names.mask-system-messages", true),
+                historyServer,
             )
         }
     }

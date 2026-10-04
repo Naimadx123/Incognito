@@ -2,6 +2,7 @@ package zone.vao.incognito.storage
 
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.logging.Level
@@ -11,6 +12,9 @@ class PlayerDataService(private val storage: PlayerStorage, private val logger: 
 
     private val cache = ConcurrentHashMap<UUID, PlayerRecord>()
     private val dirty = ConcurrentHashMap<UUID, PlayerRecord>()
+    private val activeHistory = ConcurrentHashMap<UUID, HistorySession>()
+    private val dirtyHistory = ConcurrentHashMap<UUID, HistorySession>()
+    private val historyStorage: SessionHistoryStorage get() = storage as? SessionHistoryStorage ?: error("Storage does not support session history")
     private val writes = Any()
     private val io = Executors.newSingleThreadScheduledExecutor { task -> Thread(task, "incognito-storage").apply { isDaemon = true } }
     @Volatile private var closed = false
@@ -46,15 +50,45 @@ class PlayerDataService(private val storage: PlayerStorage, private val logger: 
         dirty[record.id] = record
     }
 
+    @Synchronized
+    fun startSession(playerId: UUID, realName: String, alias: String, sessionId: UUID, server: String) {
+        check(!closed) { "Incognito storage is closed" }
+        val previous = activeHistory[playerId]
+        if (previous?.sessionId == sessionId && previous.alias == alias) return
+        endSession(playerId)
+        val session = HistorySession(UUID.randomUUID(), sessionId, playerId, realName, alias, server, System.currentTimeMillis())
+        activeHistory[playerId] = session
+        dirtyHistory[session.id] = session
+    }
+
+    @Synchronized
+    fun endSession(playerId: UUID) {
+        val session = activeHistory.remove(playerId) ?: return
+        dirtyHistory[session.id] = session.copy(endedAt = maxOf(session.startedAt, System.currentTimeMillis()))
+    }
+
+    @Synchronized
+    fun history(lookup: HistoryLookup, value: String, page: Int): CompletableFuture<List<HistorySession>> {
+        check(!closed) { "Incognito storage is closed" }
+        return CompletableFuture.supplyAsync({
+            flush()
+            historyStorage.history(lookup, value, page)
+        }, io)
+    }
+
     fun flush() = synchronized(writes) {
         val batch = dirty.values.toList()
         storage.save(batch)
         batch.forEach { dirty.remove(it.id, it) }
+        val sessions = dirtyHistory.values.toList()
+        if (sessions.isNotEmpty()) historyStorage.saveHistory(sessions)
+        sessions.forEach { dirtyHistory.remove(it.id, it) }
     }
 
     override fun close() {
         synchronized(this) {
             if (closed) return
+            activeHistory.keys.toList().forEach(::endSession)
             closed = true
         }
         io.shutdown()

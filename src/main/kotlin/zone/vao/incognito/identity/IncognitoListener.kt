@@ -87,7 +87,7 @@ class IncognitoListener(private val service: IncognitoService) : Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     fun onCommand(event: PlayerCommandPreprocessEvent) {
-        val command = service.rewriteCommand(event.message)
+        val command = service.rewriteCommand(event.message, event.player)
         if (command != event.message) event.message = command
     }
 }

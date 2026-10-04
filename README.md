@@ -46,14 +46,40 @@ Command alias: `/incog`.
 | `/incognito messages on` / `/incognito messages off` | Sets those messages to shown or hidden. |
 | `/incognito messages status` | Shows the effective setting and whether changes are locked. |
 | `/incognito player <player> [on\|off]` | Changes an online player's state; toggles it when `on`/`off` is omitted. |
+| `/incognito history alias <alias> [page]` | Looks up recorded sessions by alias, newest first. |
+| `/incognito history player <name\|uuid> [page]` | Looks up recorded sessions by account name or UUID, newest first. |
 
 | Permission | Default | Purpose |
 | --- | --- | --- |
 | `incognito.use` | OP | Access to the command and personal incognito settings. |
 | `incognito.admin` | OP | Manage other players and receive incognito state and alias notifications. The administrative command also requires `incognito.use`. |
 | `incognito.reveal` | OP | View real names through the `incognito_realname` placeholder. Ordinary name masking remains active. |
+| `incognito.history` | OP | Read session history, including real names and UUIDs. Can be managed separately; does not require `incognito.use`, `incognito.admin` or `incognito.reveal`. |
 
-Personal settings require a player sender. The console can use the `player` subcommand. With `names.hide_realname: true`, target incognito players by their aliases.
+Personal settings require a player sender. The console can use the `player` and `history` subcommands. With `names.hide_realname: true`, target incognito players by their aliases; authorized history lookups accept their real account names.
+
+## Session history
+
+Each incognito visit records the account UUID, account name, alias, session identifier, server and start/end timestamps in the configured SQL database. Recording starts when the player joins with incognito active and ends on logout or normal plugin shutdown. Pending toggles do not create sessions. Previous visits remain available after reconnects, alias changes and restarts; records predating this feature cannot be reconstructed.
+
+```text
+/incognito history alias Anon_0123456789
+/incognito history player Notch
+/incognito history player Notch 2
+```
+
+Lookups are case-insensitive and return ten visits per page, with UTC timestamps. Searching by account name includes matching historical names and the UUID currently stored under that name. Use the account UUID for an unambiguous lookup after name changes or name reuse. A missing end is shown as `no end recorded`: the visit may still be open, or the server may have stopped without recording a logout.
+
+```yaml
+history:
+  server-id: survival
+```
+
+Give each server a distinct `history.server-id`. Servers sharing the SQL database can search all recorded visits. Redis transfers retain the shared session identifier while each server records its own visit. History is stored independently of the Redis session timeout and is retained until removed from the database.
+
+Only callers with `incognito.history` receive lookup results. Operators have this permission by default; grant or revoke it separately to limit access to the intended staff group. Player results are addressed to that recipient and the permission is checked again before delivery. Session mappings are not automatically printed to the console. A console lookup prints its result there, so restrict panel, console, database and backup access to the intended staff group. Existing `incognito.admin` notifications remain controlled by their own permission and message templates.
+
+History writes use the asynchronous storage queue, retried after failures and flushed before lookups and normal shutdown. A crash can lose pending writes or leave an end timestamp missing. The plugin does not invent an end time for such visits.
 
 ## Join and quit messages
 
@@ -110,6 +136,7 @@ See [config.yml](src/main/resources/config.yml) for the full configuration, defa
 | `coordinates.enabled` | Shifts the visible world along X/Z. Y is unchanged. |
 | `coordinates.tabcomplete` | Translates coordinates in command suggestions. |
 | `coordinates.patterns` | Regular expressions for coordinates in text, using named `x` and `z` capture groups. |
+| `history.server-id` | Server label saved with each historical visit; use distinct labels when sharing a database. |
 | `placeholders.enabled` | Filters results from PlaceholderAPI expansions. |
 | `debug` | Logs detailed packet transformations for troubleshooting. |
 
@@ -141,7 +168,7 @@ MiniPlaceholders tags require a player audience. Incognito's own placeholders ar
 
 ## Storage
 
-The default backend is SQLite at `plugins/Incognito/data.db`. Records contain the UUID, real name, requested incognito state, message preference and last alias needed for the disable notification. The stored alias is used for notifications; a new alias is generated at login. Coordinate offsets are kept in memory only and a new one is chosen for each session.
+The default backend is SQLite at `plugins/Incognito/data.db`. Player records contain the UUID, real name, requested incognito state, message preference and last alias needed for the disable notification. Session history is stored in the separate `<table-prefix>sessions` table. The last alias in the player record is used for notifications; a new alias is generated at login. Coordinate offsets are kept in memory only and a new one is chosen for each session.
 
 For MySQL, create a database and configure:
 
@@ -173,7 +200,7 @@ network:
   session-timeout: 60
 ```
 
-Sessions are not persisted: once a player has been off the whole network for longer than `session-timeout` seconds, the next login gets a new alias and offset. Use a shared MySQL or PostgreSQL `storage` on every server so all of them read the same incognito state. If Redis is unreachable, players get local sessions and a warning is logged.
+Active sessions are kept in Redis: once a player has been off the whole network for longer than `session-timeout` seconds, the next login gets a new alias and offset. Historical visits remain in SQL and are not used to restore an expired session. Use a shared MySQL or PostgreSQL `storage` on every server so all of them read the same incognito state. If Redis is unreachable, players get local sessions and a warning is logged.
 
 ## Building
 

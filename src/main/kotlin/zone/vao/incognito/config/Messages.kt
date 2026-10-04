@@ -3,6 +3,7 @@ package zone.vao.incognito.config
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.minimessage.MiniMessage
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder
+import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver
 import org.bukkit.configuration.file.FileConfiguration
 
 class Messages(config: FileConfiguration) {
@@ -30,9 +31,18 @@ class Messages(config: FileConfiguration) {
         "notify-pending-enabled" to "<gold>Incognito >> <yellow>Player <player> will enable incognito after reconnecting; a nickname will be assigned at login.",
         "notify-pending-disabled" to "<gold>Incognito >> <yellow>Player <name> (<player>) will disable incognito after reconnecting.",
         "notify-cancelled" to "<gold>Incognito >> <yellow>Player <player> canceled the pending incognito change.",
+        "no-permission" to "<red>You do not have permission to do that.",
+        "history-loading" to "<gray>Loading incognito session history...",
+        "history-busy" to "<yellow>Your previous history lookup is still running.",
+        "history-empty" to "<yellow>No sessions found for <query> on page <page>.",
+        "history-failed" to "<red>Session history could not be loaded. Please try again later.",
+        "history-header" to "<gold>Incognito history: <query> <gray>(page <page>)",
+        "history-entry" to "<yellow><name> <gray>-> <white><player> <gray>[<server>]\n<gray>UUID: <white><uuid>\n<gray>Session: <white><session>\n<gray>From <white><started> <gray>to <white><ended>",
+        "history-open" to "<yellow>no end recorded",
+        "history-next" to "<gray>More sessions: <yellow><command>",
     )
     private val values = defaults.mapValues { (key, default) -> config.getString("messages.$key", default)!! }
 
-    fun get(key: String, name: String = "", player: String = ""): Component =
-        MiniMessage.miniMessage().deserialize(values.getValue(key), Placeholder.unparsed("name", name), Placeholder.unparsed("player", player))
+    fun get(key: String, name: String = "", player: String = "", vararg extra: TagResolver): Component =
+        MiniMessage.miniMessage().deserialize(values.getValue(key), TagResolver.resolver(listOf(Placeholder.unparsed("name", name), Placeholder.unparsed("player", player)) + extra))
 }
